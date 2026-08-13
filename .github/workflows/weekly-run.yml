@@ -1,0 +1,29 @@
+name: Weekly digest run
+
+on:
+  schedule:
+    # Monday 08:00 UTC. Walmart & Amazon are core/weekly per the spec;
+    # Monday gives a clean look-back over the prior week.
+    - cron: "0 8 * * 1"
+  workflow_dispatch: {} # manual trigger, for testing without waiting a week
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Run weekly pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run weekly

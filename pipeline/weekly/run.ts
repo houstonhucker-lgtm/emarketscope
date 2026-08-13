@@ -1,0 +1,71 @@
+// Orchestrates one weekly pipeline run: search -> judge -> write, logged
+// as a pipeline_runs row throughout. Invoked by .github/workflows/
+// weekly-run.yml on a cron schedule, or manually via `npm run weekly`
+// (needs .env populated locally) / workflow_dispatch in Actions.
+
+import {
+  createPipelineRun,
+  finishPipelineRun,
+  getActiveKnownSources,
+  getActiveScopeProfile,
+  getExistingSourceUrlsForWeek,
+} from "../lib/supabase.js";
+import { search } from "./search.js";
+import { judge } from "./judge.js";
+import { write } from "./write.js";
+
+// Monday of the current week, in the pipeline's reference timezone (UTC —
+// Actions runs on UTC; a week boundary being off by a few hours doesn't
+// matter for a weekly cadence).
+function getWeekOf(now: Date = new Date()): string {
+  const day = now.getUTCDay(); // 0 = Sunday
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setUTCDate(now.getUTCDate() + diffToMonday);
+  return monday.toISOString().slice(0, 10);
+}
+
+async function main() {
+  const weekOf = getWeekOf();
+  console.log(`Starting weekly run for week_of=${weekOf}`);
+
+  const run = await createPipelineRun("weekly");
+  console.log(`pipeline_runs.id = ${run.id}`);
+
+  try {
+    const [scopeProfileVersion, knownSources, existingSourceUrls] = await Promise.all([
+      getActiveScopeProfile(),
+      getActiveKnownSources(),
+      getExistingSourceUrlsForWeek(weekOf),
+    ]);
+
+    console.log(
+      `Loaded scope profile v${scopeProfileVersion.version}, ${knownSources.length} known sources.`,
+    );
+
+    const candidates = await search(scopeProfileVersion.content, knownSources, weekOf);
+    console.log(`Claude returned ${candidates.length} candidate item(s).`);
+
+    const { validated, rejected } = judge(candidates, existingSourceUrls);
+    if (rejected.length > 0) {
+      console.log(`Rejected ${rejected.length} candidate(s):`);
+      for (const r of rejected) {
+        console.log(`  - "${r.item.title}": ${r.reason}`);
+      }
+    }
+
+    const itemsWritten = await write(validated, run.id, weekOf);
+    console.log(`Wrote ${itemsWritten} digest item(s).`);
+
+    const notes = `candidates=${candidates.length} validated=${validated.length} rejected=${rejected.length}`;
+    await finishPipelineRun(run.id, "success", itemsWritten, notes);
+    console.log("Weekly run complete.");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Weekly run failed: ${message}`);
+    await finishPipelineRun(run.id, "failed", null, message);
+    process.exitCode = 1;
+  }
+}
+
+main();

@@ -1,0 +1,13 @@
+{
+  "name": "emarketscope-pipeline",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Scheduled pipeline scripts for eMarketScope, run by GitHub Actions.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {},
+  "dependencies": {},
+  "devDependencies": {}
+}

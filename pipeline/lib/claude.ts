@@ -106,7 +106,12 @@ const EFFORT = (process.env.CLAUDE_EFFORT ?? "medium") as
   | "xhigh"
   | "max";
 const MAX_WEB_SEARCHES = Number(process.env.CLAUDE_MAX_WEB_SEARCHES ?? 20);
-const BACKFILL_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_BACKFILL_MAX_WEB_SEARCHES ?? 25);
+// Higher than the weekly cap, and raised again after both backfill test
+// runs hit the previous cap (25) — unlike the weekly job, which gets a
+// do-over every week, this is a one-time pass over ~2 years of history,
+// so it's worth erring toward more search headroom. At $0.01/search, the
+// worst case (all 8 chunks maxing out) adds ~$2 versus the old cap.
+const BACKFILL_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_BACKFILL_MAX_WEB_SEARCHES ?? 50);
 const MAX_TOKENS = 16000;
 const MAX_RESUMES = 3; // guards against runaway pause_turn loops
 

@@ -18,6 +18,11 @@ build/
 .next/
 out/
 
+# local fallback copies of rendered digest emails (send.ts writes here
+# when Resend isn't configured or a send fails) — real digest content,
+# not secrets, but not something to commit
+.email-fallback/
+
 # logs
 *.log
 npm-debug.log*

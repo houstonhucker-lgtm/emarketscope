@@ -64,7 +64,33 @@ Public sources only:
   and Target (predictable, scheduled, and reliably public)
 - **Historical backfill** — one-time job at launch: roughly 2 years back for
   event dates and major UX press releases, to seed the calendar with
-  history. Doesn't need to be as detailed as ongoing tracking.
+  history. Doesn't need to be as detailed as ongoing tracking. Also
+  generates one real summary email of everything found (even if long),
+  rather than silently seeding the database — that's the trigger for
+  Houston to actually sit down and react to the whole batch at once.
+
+## Email structure
+
+Every email — weekly (if sent), monthly, quarterly, and the one-time
+backfill — is organized into the same consistent sections, so the format
+is predictable over time:
+
+1. **Key Dates** — the calendar pillar: upcoming/recent event dates
+2. **UX & Feature Updates** — pillar 1: what's changed in the actual
+   shopping experience
+3. **Signature Events** — pillar 2: structure and comparison across
+   retailers for events in play
+4. **Category Highlights** — the same underlying items, re-sliced by
+   category (household essentials, health, beauty, personal care, baby
+   care) so Houston can jump straight to one category
+5. **Additional Context** — trade/industry commentary that's useful
+   background but doesn't fit neatly in the sections above
+6. **Investor & Earnings Signal** — quarterly only: relevant commentary
+   pulled from shareholder letters and earnings calls
+
+A section is omitted entirely when there's nothing in it for that period,
+rather than filled with forced content. Every item keeps its source link
+regardless of which section it's filed under.
 
 ## Feedback & adaptive search
 
@@ -83,6 +109,12 @@ Public sources only:
   already knows
 - No silent self-modification — the system proposes scope changes at the
   review checkpoint rather than rewriting its own criteria unilaterally
+- Historical backfill items go through the same thumbs up/down feedback as
+  ongoing items — tagged distinctly (e.g. a source_type or is_backfill
+  field) so the web app can surface them as a reviewable batch and so
+  recency logic elsewhere doesn't treat old items as current. Reacting to
+  the whole backfilled batch at once is a faster way to calibrate the
+  scope profile than waiting on weekly trickle alone.
 
 ## Review checkpoint
 

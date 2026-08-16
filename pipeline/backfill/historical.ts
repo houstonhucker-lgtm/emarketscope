@@ -17,6 +17,10 @@ import {
 } from "../lib/supabase.js";
 import { judge } from "../weekly/judge.js";
 import { writeBackfill } from "./write.js";
+import { buildEmailSections } from "../email/sections.js";
+import { renderEmailHtml, renderEmailText } from "../email/render.js";
+import { sendDigestEmail } from "../email/send.js";
+import type { ValidatedItem } from "../lib/types.js";
 
 const BACKFILL_MONTHS = Number(process.env.BACKFILL_MONTHS ?? 24);
 const MONTHS_PER_CHUNK = Number(process.env.BACKFILL_MONTHS_PER_CHUNK ?? 3);
@@ -39,6 +43,7 @@ async function main() {
   let totalCandidates = 0;
   let totalRejected = 0;
   let totalWritten = 0;
+  const allValidatedItems: ValidatedItem[] = [];
 
   try {
     const [scopeProfileVersion, knownSources] = await Promise.all([
@@ -73,6 +78,7 @@ async function main() {
 
       const written = await writeBackfill(validated, run.id, chunk.start);
       totalWritten += written;
+      allValidatedItems.push(...validated);
 
       console.log(
         `Chunk ${i + 1}: ${candidates.length} candidate(s) -> ${written} written. ` +
@@ -80,11 +86,29 @@ async function main() {
       );
     }
 
+    // One real summary email of everything found across the whole backfill
+    // (per spec) — not a per-chunk email. Best-effort: a failed/unconfigured
+    // send does not fail the run, since the database writes above already
+    // succeeded and are the source of truth.
+    console.log(`\nBuilding summary email for ${allValidatedItems.length} item(s)...`);
+    const sections = buildEmailSections(allValidatedItems);
+    const rangeLabel = `${start.toISOString().slice(0, 10)} to ${now.toISOString().slice(0, 10)}`;
+    const subject = `eMarketScope — Historical Backfill Summary (${rangeLabel})`;
+    const html = renderEmailHtml(subject, sections);
+    const text = renderEmailText(subject, sections);
+    const emailResult = await sendDigestEmail(subject, html, text);
+    if (emailResult.sent) {
+      console.log("Summary email sent.");
+    } else {
+      console.log(`Summary email not sent (${emailResult.reason}).`);
+    }
+
     const notes =
       `chunks=${chunks.length} candidates=${totalCandidates} written=${totalWritten} rejected=${totalRejected} | ` +
       `api_calls=${totalUsage.api_calls} input_tokens=${totalUsage.input_tokens} output_tokens=${totalUsage.output_tokens} ` +
       `cache_write=${totalUsage.cache_creation_input_tokens} cache_read=${totalUsage.cache_read_input_tokens} ` +
-      `web_searches=${totalUsage.web_search_requests} est_cost_usd=${totalUsage.estimated_cost_usd.toFixed(4)} (${totalUsage.pricing_basis})`;
+      `web_searches=${totalUsage.web_search_requests} est_cost_usd=${totalUsage.estimated_cost_usd.toFixed(4)} (${totalUsage.pricing_basis}) | ` +
+      `email_sent=${emailResult.sent}${emailResult.reason ? ` (${emailResult.reason})` : ""}`;
     await finishPipelineRun(run.id, "success", totalWritten, notes);
 
     console.log(

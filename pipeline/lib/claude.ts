@@ -171,6 +171,70 @@ interface SystemBlock {
   cacheControl?: boolean;
 }
 
+// Scans `text` for top-level balanced {...} objects, string-aware (braces
+// inside string values don't affect depth). A response occasionally
+// contains more than one — e.g. an intermediate "{"items": []}" segment
+// followed by the real final answer — which naive concatenation-then-
+// JSON.parse chokes on (observed in production: "Unexpected non-
+// whitespace character after JSON"). Returns them in the order found.
+function findBalancedJsonObjects(text: string): string[] {
+  const results: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        results.push(text.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+  return results;
+}
+
+// Extracts the last valid { "items": [...] }-shaped object from `text`,
+// rather than joining every text block and parsing the whole thing as one
+// JSON document. Tries candidates newest-first so a well-formed final
+// answer wins even if an earlier segment also happens to parse.
+function extractLastJsonObject(text: string, label: string): { items: CandidateItem[] } {
+  const candidates = findBalancedJsonObjects(text);
+  if (candidates.length === 0) {
+    throw new Error(`No JSON object found in ${label} response text.\nRaw text: ${text.slice(0, 2000)}`);
+  }
+
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    try {
+      const parsed = JSON.parse(candidates[i]);
+      if (parsed && Array.isArray(parsed.items)) {
+        return parsed;
+      }
+    } catch {
+      // not valid JSON on its own (e.g. a brace pair that happened to
+      // balance mid-string-escape edge case) — try the next candidate back
+    }
+  }
+
+  throw new Error(
+    `Found ${candidates.length} JSON object(s) in ${label} response but none had a valid "items" array.\nRaw text: ${text.slice(0, 2000)}`,
+  );
+}
+
 export interface SearchAndJudgeResult {
   items: CandidateItem[];
   usage: RunUsage;
@@ -233,15 +297,7 @@ async function runStructuredSearch(
     return { items: [], usage };
   }
 
-  let parsed: { items: CandidateItem[] };
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    throw new Error(
-      `Failed to parse ${label} structured output as JSON: ${(err as Error).message}\nRaw text: ${text.slice(0, 2000)}`,
-    );
-  }
-
+  const parsed = extractLastJsonObject(text, label);
   return { items: parsed.items ?? [], usage };
 }
 

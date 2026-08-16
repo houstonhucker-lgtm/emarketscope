@@ -13,17 +13,7 @@ import {
 import { search } from "./search.js";
 import { judge } from "./judge.js";
 import { write } from "./write.js";
-
-// Monday of the current week, in the pipeline's reference timezone (UTC —
-// Actions runs on UTC; a week boundary being off by a few hours doesn't
-// matter for a weekly cadence).
-function getWeekOf(now: Date = new Date()): string {
-  const day = now.getUTCDay(); // 0 = Sunday
-  const diffToMonday = day === 0 ? -6 : 1 - day;
-  const monday = new Date(now);
-  monday.setUTCDate(now.getUTCDate() + diffToMonday);
-  return monday.toISOString().slice(0, 10);
-}
+import { getWeekOf } from "../lib/dates.js";
 
 async function main() {
   const weekOf = getWeekOf();

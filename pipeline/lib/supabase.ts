@@ -105,6 +105,16 @@ export async function getExistingSourceUrlsForWeek(weekOf: string): Promise<Set<
   return new Set((data ?? []).map((row) => row.source_url as string));
 }
 
+// All existing source_urls, regardless of week — used by the backfill job
+// instead of getExistingSourceUrlsForWeek since a backfill run spans many
+// weeks/chunks and needs to dedupe against everything already stored
+// (including items written by earlier chunks in the same backfill run).
+export async function getAllExistingSourceUrls(): Promise<Set<string>> {
+  const { data, error } = await supabase.from("digest_items").select("source_url");
+  if (error) throw new Error(`Failed to load existing digest items: ${error.message}`);
+  return new Set((data ?? []).map((row) => row.source_url as string));
+}
+
 // Bumps hit_count/last_hit_at for known sources that produced at least one
 // item this run. Matches by source_name (case-insensitive) — items whose
 // source_name doesn't match a known source are left alone (they came from

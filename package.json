@@ -8,7 +8,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "weekly": "tsx pipeline/weekly/run.ts"
+    "weekly": "tsx pipeline/weekly/run.ts",
+    "backfill": "tsx pipeline/backfill/historical.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

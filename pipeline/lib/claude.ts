@@ -89,7 +89,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SEARCH_PROMPT = readFileSync(join(__dirname, "..", "prompts", "search.md"), "utf-8");
 const BACKFILL_PROMPT = readFileSync(join(__dirname, "..", "prompts", "backfill.md"), "utf-8");
 
-const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+// maxRetries raised from the SDK default (2) to 5: a real 8-chunk backfill
+// run hit a transient 529 overloaded_error on chunk 2/8 with the default,
+// aborting the whole job. Bumping retries (with the SDK's built-in
+// exponential backoff) reduces how often that can happen at all; the
+// per-chunk try/catch in backfill/historical.ts is the second layer, for
+// when a chunk fails anyway.
+const client = new Anthropic({ maxRetries: 5 }); // reads ANTHROPIC_API_KEY from env
 
 // Sonnet, not Opus: the spec's $5-15/month estimate was built around
 // Sonnet-tier pricing, and Opus runs ~2-2.5x the per-token cost on both

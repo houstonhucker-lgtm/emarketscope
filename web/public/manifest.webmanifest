@@ -1,0 +1,13 @@
+{
+  "name": "eMarketScope",
+  "short_name": "eMarketScope",
+  "description": "Walmart, Amazon, and Target signature events, UX/feature changes, and calendar tracking.",
+  "start_url": "/calendar",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#2a78d6",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+
+  /* Pillar ("type") color-coding — the only axis validated for true
+     hue-based color-coding (dataviz skill: 3-slot categorical palette,
+     first 3 slots of the reference 8-hue set, passes all-pairs CVD +
+     normal-vision checks in both light and dark). Category (5 values)
+     deliberately does NOT get its own hue set — validated and failed
+     (hard FAIL on normal-vision floor under --pairs all); see
+     app/(app)/calendar/page.tsx for the tradeoff note. */
+  --pillar-ux-feature: #2a78d6;
+  --pillar-signature-event: #eb6834;
+  --pillar-calendar: #1baf7a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+
+    --pillar-ux-feature: #3987e5;
+    --pillar-signature-event: #d95926;
+    --pillar-calendar: #199e70;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}

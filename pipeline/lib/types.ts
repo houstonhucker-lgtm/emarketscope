@@ -26,9 +26,22 @@ export interface PipelineRun {
   notes: string | null;
 }
 
+// Anchored to concrete subcategories/products, not bare department names —
+// retailers slice these departments inconsistently, so search/judge needs
+// to match against the actual subcategory list. `priority`/`note` carry
+// weighting the spec calls out explicitly (e.g. hair care primary /
+// skincare secondary within beauty; diapers & wipes heaviest within baby)
+// rather than treating every subcategory as equal.
+export interface ScopeProfileCategoryDetail {
+  label: string;
+  subcategories: Record<string, string[]>;
+  priority?: string;
+  note?: string;
+}
+
 export interface ScopeProfile {
   retailers: Record<string, { tier: string; note?: string }>;
-  categories: string[];
+  categories: Record<Category, ScopeProfileCategoryDetail>;
   pillars: Record<string, string>;
   out_of_scope: string[];
   goal: string;
@@ -97,6 +110,7 @@ export interface CalendarEntryInsert {
   event_date_end: string | null;
   title: string;
   description: string | null;
+  pillar: Pillar;
   retailers: Retailer[];
   categories: Category[];
   source_url: string;

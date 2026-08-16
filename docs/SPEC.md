@@ -25,7 +25,31 @@ anywhere publicly, he's already aware of it.
 - Target — lighter touch: major launches and event-period behavior only
 
 **Categories**
-Household essentials, health, beauty, personal care, baby care
+
+Anchored to concrete subcategories/products rather than bare department
+labels, since retailers (especially Walmart, Amazon, and Target) slice
+these departments inconsistently — this list is what search/judge should
+actually match against, not just the five department names:
+
+- **Household Essentials (HHE)**
+  - *Home Care*: laundry care, air care, dish care, all purpose cleaners,
+    bath and toilet/drain, pest control, mops & brooms/quick-clean
+    (Swiffer-type products)
+  - *Paper/Disposable Table Top*: bath tissue, paper towels, facial
+    tissue, disposable table top, waste management
+- **Personal Care**: deodorants, grooming/beard care, oral care, women's
+  hygiene/incontinence, bath & body, sexual wellness, sunscreen
+- **Baby Care**: diapers and wipes are the heaviest focus; broader baby
+  category is relevant at some level
+- **Health & Wellness**: OTC solutions, specifically respiratory and
+  digestive wellness
+- **Beauty**: premium beauty, makeup, hair care (primary focus within
+  beauty), skincare (secondary focus), fragrance, nail care, suncare &
+  tanning
+
+This is the seed for the scope profile's category matching, not just the
+calendar filter labels — it should sharpen search/judge across every
+pillar, not only the UI.
 
 ## The three pillars
 
@@ -134,7 +158,13 @@ Tabs:
 - Monthly
 - Quarterly
 - **Calendar** (separate, dedicated — expected to be referenced most
-  frequently of anything in the app)
+  frequently of anything in the app). Entries are color-coded by type
+  (signature event / UX & feature update / calendar-only) and by product
+  category (household essentials, health, beauty, personal care, baby
+  care), with a selector to filter to "all" or any combination of those.
+  Calendar entries are created for any item with a real event_date,
+  regardless of which pillar it came from — confirmed in the backfill:
+  all 56 items, spanning all three pillars, produced calendar entries.
 - Capture / feedback
 
 Every single item, everywhere in the app, is sourced with a clickable link

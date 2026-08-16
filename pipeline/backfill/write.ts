@@ -47,6 +47,7 @@ export async function writeBackfill(
       event_date_end: item.event_date_end ?? null,
       title: item.title,
       description: item.summary,
+      pillar: item.pillar,
       retailers: item.retailers,
       categories: item.categories,
       source_url: item.source_url,

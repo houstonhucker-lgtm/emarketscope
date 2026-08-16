@@ -43,8 +43,14 @@ async function main() {
       `Loaded scope profile v${scopeProfileVersion.version}, ${knownSources.length} known sources.`,
     );
 
-    const candidates = await search(scopeProfileVersion.content, knownSources, weekOf);
+    const { items: candidates, usage } = await search(scopeProfileVersion.content, knownSources, weekOf);
     console.log(`Claude returned ${candidates.length} candidate item(s).`);
+    console.log(
+      `Usage: ${usage.api_calls} API call(s), ${usage.input_tokens} input tokens, ` +
+        `${usage.output_tokens} output tokens, ${usage.cache_creation_input_tokens} cache-write tokens, ` +
+        `${usage.cache_read_input_tokens} cache-read tokens, ${usage.web_search_requests} web searches. ` +
+        `Estimated cost: $${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis} Sonnet 5 pricing).`,
+    );
 
     const { validated, rejected } = judge(candidates, existingSourceUrls);
     if (rejected.length > 0) {
@@ -57,7 +63,11 @@ async function main() {
     const itemsWritten = await write(validated, run.id, weekOf);
     console.log(`Wrote ${itemsWritten} digest item(s).`);
 
-    const notes = `candidates=${candidates.length} validated=${validated.length} rejected=${rejected.length}`;
+    const notes =
+      `candidates=${candidates.length} validated=${validated.length} rejected=${rejected.length} | ` +
+      `api_calls=${usage.api_calls} input_tokens=${usage.input_tokens} output_tokens=${usage.output_tokens} ` +
+      `cache_write=${usage.cache_creation_input_tokens} cache_read=${usage.cache_read_input_tokens} ` +
+      `web_searches=${usage.web_search_requests} est_cost_usd=${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis})`;
     await finishPipelineRun(run.id, "success", itemsWritten, notes);
     console.log("Weekly run complete.");
   } catch (err) {

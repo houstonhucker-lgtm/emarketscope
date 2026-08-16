@@ -1,10 +1,16 @@
 # dependencies
 node_modules/
 
-# env
+# env — broad glob so any backup/save/swap variant an editor or sync tool
+# creates next to .env is caught too, not just the exact filenames below.
+# .env.example is the one intentional exception — un-ignore it explicitly.
 .env
 .env.local
 .env.*.local
+.env.*
+.env*.save
+*.env.bak
+!.env.example
 
 # build output
 dist/

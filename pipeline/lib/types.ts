@@ -70,6 +70,25 @@ export interface KnownSource {
   created_at: string;
 }
 
+export interface ForwardedItem {
+  id: string;
+  received_at: string;
+  from_email: string | null;
+  subject: string | null;
+  body: string | null;
+  extracted_url: string | null;
+  status: "pending" | "processed" | "ignored";
+  resulting_digest_item_id: string | null;
+  processed_at: string | null;
+}
+
+export interface SourceCoverageAuditInsert {
+  forwarded_item_id: string;
+  was_independently_findable: boolean | null;
+  evidence_url: string | null;
+  notes: string | null;
+}
+
 // One candidate item as produced directly by the Claude search+judge call,
 // before validation in judge.ts.
 export interface CandidateItem {

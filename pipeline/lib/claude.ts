@@ -88,6 +88,8 @@ export function mergeUsage(total: RunUsage, addition: RunUsage): void {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SEARCH_PROMPT = readFileSync(join(__dirname, "..", "prompts", "search.md"), "utf-8");
 const BACKFILL_PROMPT = readFileSync(join(__dirname, "..", "prompts", "backfill.md"), "utf-8");
+const SOURCE_AUDIT_PROMPT = readFileSync(join(__dirname, "..", "prompts", "source-audit.md"), "utf-8");
+const SCOPE_PROPOSAL_PROMPT = readFileSync(join(__dirname, "..", "prompts", "scope-proposal.md"), "utf-8");
 
 // maxRetries raised from the SDK default (2) to 5: a real 8-chunk backfill
 // run hit a transient 529 overloaded_error on chunk 2/8 with the default,
@@ -118,6 +120,9 @@ const MAX_WEB_SEARCHES = Number(process.env.CLAUDE_MAX_WEB_SEARCHES ?? 20);
 // so it's worth erring toward more search headroom. At $0.01/search, the
 // worst case (all 8 chunks maxing out) adds ~$2 versus the old cap.
 const BACKFILL_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_BACKFILL_MAX_WEB_SEARCHES ?? 50);
+// Narrower check than a full search pass -- confirming/denying one
+// specific story, not discovering new ones.
+const AUDIT_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_AUDIT_MAX_WEB_SEARCHES ?? 10);
 const MAX_TOKENS = 16000;
 const MAX_RESUMES = 3; // guards against runaway pause_turn loops
 
@@ -166,6 +171,18 @@ const ITEMS_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const AUDIT_SCHEMA = {
+  type: "object",
+  properties: {
+    was_independently_findable: { type: "boolean" },
+    evidence_url: { type: "string" },
+    evidence_source_name: { type: "string" },
+    notes: { type: "string" },
+  },
+  required: ["was_independently_findable", "notes"],
+  additionalProperties: false,
+} as const;
+
 interface SystemBlock {
   text: string;
   cacheControl?: boolean;
@@ -208,11 +225,11 @@ function findBalancedJsonObjects(text: string): string[] {
   return results;
 }
 
-// Extracts the last valid { "items": [...] }-shaped object from `text`,
-// rather than joining every text block and parsing the whole thing as one
-// JSON document. Tries candidates newest-first so a well-formed final
-// answer wins even if an earlier segment also happens to parse.
-function extractLastJsonObject(text: string, label: string): { items: CandidateItem[] } {
+// Extracts the last valid object matching `isValid` from `text`, rather
+// than joining every text block and parsing the whole thing as one JSON
+// document. Tries candidates newest-first so a well-formed final answer
+// wins even if an earlier segment also happens to parse.
+function extractLastJsonObject<T>(text: string, label: string, isValid: (v: unknown) => v is T): T {
   const candidates = findBalancedJsonObjects(text);
   if (candidates.length === 0) {
     throw new Error(`No JSON object found in ${label} response text.\nRaw text: ${text.slice(0, 2000)}`);
@@ -220,8 +237,8 @@ function extractLastJsonObject(text: string, label: string): { items: CandidateI
 
   for (let i = candidates.length - 1; i >= 0; i--) {
     try {
-      const parsed = JSON.parse(candidates[i]);
-      if (parsed && Array.isArray(parsed.items)) {
+      const parsed: unknown = JSON.parse(candidates[i]);
+      if (isValid(parsed)) {
         return parsed;
       }
     } catch {
@@ -231,23 +248,26 @@ function extractLastJsonObject(text: string, label: string): { items: CandidateI
   }
 
   throw new Error(
-    `Found ${candidates.length} JSON object(s) in ${label} response but none had a valid "items" array.\nRaw text: ${text.slice(0, 2000)}`,
+    `Found ${candidates.length} JSON object(s) in ${label} response but none matched the expected shape.\nRaw text: ${text.slice(0, 2000)}`,
   );
 }
 
-export interface SearchAndJudgeResult {
-  items: CandidateItem[];
+interface RawSearchResult {
+  text: string | null; // null on refusal or an empty response
   usage: RunUsage;
 }
 
-// Shared request/resume/parse loop. `label` is only used in log messages
-// so failures are traceable to which caller (weekly vs backfill) hit them.
-async function runStructuredSearch(
+// Shared request/resume loop — the network/retry/usage-tracking mechanics
+// every structured search call needs, regardless of what schema it's
+// asking for. `label` is only used in log messages so failures are
+// traceable to which caller (weekly / backfill / audit) hit them.
+async function executeSearchRequest(
   systemBlocks: SystemBlock[],
+  schema: Record<string, unknown>,
   maxWebSearches: number,
   kickoffMessage: string,
   label: string,
-): Promise<SearchAndJudgeResult> {
+): Promise<RawSearchResult> {
   const usage = emptyUsage();
 
   const baseParams = {
@@ -256,16 +276,24 @@ async function runStructuredSearch(
     thinking: { type: "adaptive" as const },
     output_config: {
       effort: EFFORT,
-      format: { type: "json_schema" as const, schema: ITEMS_SCHEMA },
+      format: { type: "json_schema" as const, schema },
     },
     system: systemBlocks.map((b) => ({
       type: "text" as const,
       text: b.text,
       ...(b.cacheControl ? { cache_control: { type: "ephemeral" as const } } : {}),
     })),
-    tools: [
-      { type: "web_search_20260209" as const, name: "web_search" as const, max_uses: maxWebSearches },
-    ],
+    // maxWebSearches: 0 means this call does no searching at all (e.g.
+    // the scope-proposal reasoning pass, which works only from evidence
+    // it's already given) -- omit the tool entirely rather than declare
+    // it with a zero budget.
+    ...(maxWebSearches > 0
+      ? {
+          tools: [
+            { type: "web_search_20260209" as const, name: "web_search" as const, max_uses: maxWebSearches },
+          ],
+        }
+      : {}),
   };
 
   let messages: Anthropic.MessageParam[] = [{ role: "user", content: kickoffMessage }];
@@ -285,19 +313,39 @@ async function runStructuredSearch(
 
   if (response.stop_reason === "refusal") {
     console.warn(
-      `Claude declined the ${label} request (category: ${response.stop_details?.category ?? "unknown"}). Treating as zero items found.`,
+      `Claude declined the ${label} request (category: ${response.stop_details?.category ?? "unknown"}).`,
     );
-    return { items: [], usage };
+    return { text: null, usage };
   }
 
   const textBlocks = response.content.filter((b): b is Anthropic.TextBlock => b.type === "text");
   const text = textBlocks.map((b) => b.text).join("");
   if (!text.trim()) {
-    console.warn(`No text content in Claude's ${label} response — treating as zero items found.`);
-    return { items: [], usage };
+    console.warn(`No text content in Claude's ${label} response.`);
+    return { text: null, usage };
   }
 
-  const parsed = extractLastJsonObject(text, label);
+  return { text, usage };
+}
+
+export interface SearchAndJudgeResult {
+  items: CandidateItem[];
+  usage: RunUsage;
+}
+
+function isItemsShape(v: unknown): v is { items: CandidateItem[] } {
+  return !!v && typeof v === "object" && Array.isArray((v as { items?: unknown }).items);
+}
+
+async function runStructuredSearch(
+  systemBlocks: SystemBlock[],
+  maxWebSearches: number,
+  kickoffMessage: string,
+  label: string,
+): Promise<SearchAndJudgeResult> {
+  const { text, usage } = await executeSearchRequest(systemBlocks, ITEMS_SCHEMA, maxWebSearches, kickoffMessage, label);
+  if (!text) return { items: [], usage };
+  const parsed = extractLastJsonObject(text, label, isItemsShape);
   return { items: parsed.items ?? [], usage };
 }
 
@@ -383,4 +431,198 @@ export async function searchAndJudgeBackfill(
     `Run the historical backfill pass for ${rangeStart} to ${rangeEnd} now.`,
     "backfill",
   );
+}
+
+export interface AuditResult {
+  was_independently_findable: boolean;
+  evidence_url?: string;
+  evidence_source_name?: string;
+  notes: string;
+}
+
+export interface AuditAndUsage {
+  result: AuditResult | null; // null on refusal or an empty response
+  usage: RunUsage;
+}
+
+function isAuditShape(v: unknown): v is AuditResult {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as Record<string, unknown>;
+  return typeof obj.was_independently_findable === "boolean" && typeof obj.notes === "string";
+}
+
+function buildAuditDynamicContext(item: {
+  subject: string | null;
+  body: string | null;
+  extractedUrl: string | null;
+}): string {
+  return [
+    "## Forwarded item",
+    `subject: ${item.subject ?? "(none)"}`,
+    `extracted_url: ${item.extractedUrl ?? "(none)"}`,
+    "body:",
+    item.body ?? "(empty)",
+    "",
+    `today: ${new Date().toISOString().slice(0, 10)}`,
+  ].join("\n");
+}
+
+export async function auditForwardedItem(item: {
+  subject: string | null;
+  body: string | null;
+  extractedUrl: string | null;
+}): Promise<AuditAndUsage> {
+  const dynamicContext = buildAuditDynamicContext(item);
+  const { text, usage } = await executeSearchRequest(
+    [
+      { text: SOURCE_AUDIT_PROMPT, cacheControl: true },
+      { text: dynamicContext },
+    ],
+    AUDIT_SCHEMA,
+    AUDIT_MAX_WEB_SEARCHES,
+    "Run the source-coverage audit for this forwarded item now.",
+    "source audit",
+  );
+  if (!text) return { result: null, usage };
+  const result = extractLastJsonObject(text, "source audit", isAuditShape);
+  return { result, usage };
+}
+
+// Scope-profile review-checkpoint proposal. No web_search (maxWebSearches
+// 0, see executeSearchRequest) -- this reasons only over evidence it's
+// given (feedback, audit results, known-source hit patterns), never
+// discovers anything new. See prompts/scope-proposal.md.
+
+const CATEGORY_DETAIL_SCHEMA = {
+  type: "object",
+  properties: {
+    label: { type: "string" },
+    // A single fixed "items" key (not arbitrary subcategory-group names)
+    // so this stays valid under strict JSON schema (additionalProperties
+    // must be false, so property sets must be enumerable) while still
+    // matching ScopeProfileCategoryDetail's Record<string, string[]> shape
+    // at runtime.
+    subcategories: {
+      type: "object",
+      properties: { items: { type: "array", items: { type: "string" } } },
+      required: ["items"],
+      additionalProperties: false,
+    },
+    priority: { type: "string" },
+    note: { type: "string" },
+  },
+  required: ["label", "subcategories"],
+  additionalProperties: false,
+} as const;
+
+const SCOPE_PROPOSAL_SCHEMA = {
+  type: "object",
+  properties: {
+    change_summary: { type: "string" },
+    profile: {
+      type: "object",
+      properties: {
+        retailers: {
+          type: "object",
+          properties: {
+            walmart: {
+              type: "object",
+              properties: { tier: { type: "string" }, note: { type: "string" } },
+              required: ["tier"],
+              additionalProperties: false,
+            },
+            amazon: {
+              type: "object",
+              properties: { tier: { type: "string" }, note: { type: "string" } },
+              required: ["tier"],
+              additionalProperties: false,
+            },
+            target: {
+              type: "object",
+              properties: { tier: { type: "string" }, note: { type: "string" } },
+              required: ["tier"],
+              additionalProperties: false,
+            },
+          },
+          required: ["walmart", "amazon", "target"],
+          additionalProperties: false,
+        },
+        categories: {
+          type: "object",
+          properties: {
+            household_essentials: CATEGORY_DETAIL_SCHEMA,
+            health: CATEGORY_DETAIL_SCHEMA,
+            beauty: CATEGORY_DETAIL_SCHEMA,
+            personal_care: CATEGORY_DETAIL_SCHEMA,
+            baby_care: CATEGORY_DETAIL_SCHEMA,
+          },
+          required: ["household_essentials", "health", "beauty", "personal_care", "baby_care"],
+          additionalProperties: false,
+        },
+        pillars: {
+          type: "object",
+          properties: {
+            ux_feature: { type: "string" },
+            signature_event: { type: "string" },
+            calendar: { type: "string" },
+          },
+          required: ["ux_feature", "signature_event", "calendar"],
+          additionalProperties: false,
+        },
+        out_of_scope: { type: "array", items: { type: "string" } },
+        goal: { type: "string" },
+      },
+      required: ["retailers", "categories", "pillars", "out_of_scope", "goal"],
+      additionalProperties: false,
+    },
+  },
+  required: ["change_summary", "profile"],
+  additionalProperties: false,
+} as const;
+
+export interface ScopeProposal {
+  change_summary: string;
+  profile: ScopeProfile;
+}
+
+export interface ScopeProposalAndUsage {
+  proposal: ScopeProposal | null;
+  usage: RunUsage;
+}
+
+function isScopeProposalShape(v: unknown): v is ScopeProposal {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as Record<string, unknown>;
+  return typeof obj.change_summary === "string" && !!obj.profile && typeof obj.profile === "object";
+}
+
+export async function proposeScopeChanges(
+  currentProfile: ScopeProfile,
+  evidenceSummary: string,
+): Promise<ScopeProposalAndUsage> {
+  const dynamicContext = [
+    "## Current active scope profile",
+    "```json",
+    JSON.stringify(currentProfile, null, 2),
+    "```",
+    "",
+    "## Accumulated evidence since the last review",
+    evidenceSummary,
+    "",
+    `today: ${new Date().toISOString().slice(0, 10)}`,
+  ].join("\n");
+
+  const { text, usage } = await executeSearchRequest(
+    [
+      { text: SCOPE_PROPOSAL_PROMPT, cacheControl: true },
+      { text: dynamicContext },
+    ],
+    SCOPE_PROPOSAL_SCHEMA,
+    0, // no web search — see header comment
+    "Draft the scope profile proposal for this review checkpoint now.",
+    "scope proposal",
+  );
+  if (!text) return { proposal: null, usage };
+  const proposal = extractLastJsonObject(text, "scope proposal", isScopeProposalShape);
+  return { proposal, usage };
 }

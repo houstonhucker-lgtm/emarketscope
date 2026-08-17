@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import CaptureForm from "./CaptureForm";
+import ItemCard from "@/components/ItemCard";
+import type { DigestItem } from "@/lib/types";
 
 interface ForwardedItemRow {
   id: string;
@@ -11,14 +13,23 @@ interface ForwardedItemRow {
 
 export default async function CapturePage() {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("forwarded_items")
-    .select("id, received_at, extracted_url, body, status")
-    .order("received_at", { ascending: false })
-    .limit(20)
-    .returns<ForwardedItemRow[]>();
+  const [{ data: forwarded }, { data: backfillItems }] = await Promise.all([
+    supabase
+      .from("forwarded_items")
+      .select("id, received_at, extracted_url, body, status")
+      .order("received_at", { ascending: false })
+      .limit(20)
+      .returns<ForwardedItemRow[]>(),
+    supabase
+      .from("digest_items")
+      .select("*")
+      .eq("is_backfill", true)
+      .order("week_of", { ascending: false })
+      .returns<DigestItem[]>(),
+  ]);
 
-  const items = data ?? [];
+  const items = forwarded ?? [];
+  const backfill = backfillItems ?? [];
 
   return (
     <div className="flex flex-col gap-8">
@@ -26,6 +37,23 @@ export default async function CapturePage() {
         <h2 className="mb-3 text-sm font-semibold text-neutral-500 dark:text-neutral-400">Forward something</h2>
         <CaptureForm />
       </section>
+
+      {backfill.length > 0 && (
+        <section>
+          <h2 className="mb-1 text-sm font-semibold text-neutral-500 dark:text-neutral-400">
+            Backfill review ({backfill.length})
+          </h2>
+          <p className="mb-3 text-xs text-neutral-400 dark:text-neutral-500">
+            The historical batch, all in one place — reacting to it here is faster than waiting on weekly
+            trickle to calibrate the scope profile.
+          </p>
+          <div className="flex flex-col gap-3">
+            {backfill.map((item) => (
+              <ItemCard key={item.id} item={item} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="mb-3 text-sm font-semibold text-neutral-500 dark:text-neutral-400">Recently forwarded</h2>

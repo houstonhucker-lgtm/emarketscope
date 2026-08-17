@@ -7,11 +7,14 @@ import "dotenv/config";
 import type {
   CalendarEntryInsert,
   DigestItemInsert,
+  ForwardedItem,
   KnownSource,
   PipelineRun,
   RunStatus,
   RunType,
+  ScopeProfile,
   ScopeProfileVersion,
+  SourceCoverageAuditInsert,
 } from "./types.js";
 
 function requireEnv(name: string): string {
@@ -145,4 +148,142 @@ export async function recordKnownSourceHits(sourceNames: string[]): Promise<void
       console.warn(`Could not update hit stats for "${name}": ${updateError.message}`);
     }
   }
+}
+
+export async function getPendingForwardedItems(limit: number): Promise<ForwardedItem[]> {
+  const { data, error } = await supabase
+    .from("forwarded_items")
+    .select("*")
+    .eq("status", "pending")
+    .order("received_at", { ascending: true })
+    .limit(limit)
+    .returns<ForwardedItem[]>();
+  if (error) throw new Error(`Failed to load pending forwarded items: ${error.message}`);
+  return data ?? [];
+}
+
+export async function insertSourceCoverageAudit(audit: SourceCoverageAuditInsert): Promise<void> {
+  const { error } = await supabase.from("source_coverage_audits").insert(audit);
+  if (error) throw new Error(`Failed to insert source coverage audit: ${error.message}`);
+}
+
+export async function markForwardedItemProcessed(
+  id: string,
+  resultingDigestItemId: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("forwarded_items")
+    .update({
+      status: "processed",
+      processed_at: new Date().toISOString(),
+      resulting_digest_item_id: resultingDigestItemId,
+    })
+    .eq("id", id);
+  if (error) throw new Error(`Failed to mark forwarded item processed: ${error.message}`);
+}
+
+// Flags a source as a known-sources candidate for human review — never
+// 'active' directly (that would be the pipeline silently expanding its
+// own source list, which the spec's "no silent self-modification" rule
+// is explicitly about). No-ops if a source with this name already exists
+// in any status, so a source that produces multiple independent hits
+// doesn't create duplicate candidate rows.
+export async function flagCandidateKnownSource(
+  name: string,
+  url: string | null,
+  addedReason: string,
+): Promise<void> {
+  const { data: existing, error: fetchError } = await supabase
+    .from("known_sources")
+    .select("id")
+    .ilike("name", name)
+    .maybeSingle();
+  if (fetchError) {
+    console.warn(`Could not check for existing known source "${name}": ${fetchError.message}`);
+    return;
+  }
+  if (existing) return;
+
+  const { error: insertError } = await supabase.from("known_sources").insert({
+    name,
+    url,
+    source_type: "other",
+    status: "candidate",
+    added_reason: addedReason,
+  });
+  if (insertError) {
+    console.warn(`Could not flag candidate known source "${name}": ${insertError.message}`);
+  }
+}
+
+// --- Review-checkpoint evidence gathering (propose-scope-changes.ts) ---
+
+export interface FeedbackWithItem {
+  vote: "up" | "down";
+  note: string | null;
+  digest_item: {
+    title: string;
+    pillar: string;
+    categories: string[];
+    retailers: string[];
+  } | null;
+}
+
+export async function getAllFeedbackWithItems(): Promise<FeedbackWithItem[]> {
+  const { data, error } = await supabase
+    .from("feedback")
+    .select("vote, note, digest_item:digest_items(title, pillar, categories, retailers)");
+  if (error) throw new Error(`Failed to load feedback: ${error.message}`);
+  return (data ?? []) as unknown as FeedbackWithItem[];
+}
+
+export interface SourceCoverageAuditRow {
+  was_independently_findable: boolean | null;
+  evidence_url: string | null;
+  notes: string | null;
+  checked_at: string;
+}
+
+export async function getAllSourceCoverageAudits(): Promise<SourceCoverageAuditRow[]> {
+  const { data, error } = await supabase
+    .from("source_coverage_audits")
+    .select("was_independently_findable, evidence_url, notes, checked_at");
+  if (error) throw new Error(`Failed to load source coverage audits: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getCandidateKnownSources(): Promise<KnownSource[]> {
+  const { data, error } = await supabase
+    .from("known_sources")
+    .select("*")
+    .eq("status", "candidate")
+    .order("hit_count", { ascending: false })
+    .returns<KnownSource[]>();
+  if (error) throw new Error(`Failed to load candidate known sources: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getNextScopeProfileVersion(): Promise<number> {
+  const { data, error } = await supabase
+    .from("scope_profile_versions")
+    .select("version")
+    .order("version", { ascending: false })
+    .limit(1)
+    .single();
+  if (error) throw new Error(`Failed to load latest scope profile version: ${error.message}`);
+  return (data?.version as number) + 1;
+}
+
+export async function insertProposedScopeProfile(
+  version: number,
+  content: ScopeProfile,
+  proposedReason: string,
+): Promise<void> {
+  const { error } = await supabase.from("scope_profile_versions").insert({
+    version,
+    content,
+    status: "proposed",
+    proposed_reason: proposedReason,
+  });
+  if (error) throw new Error(`Failed to insert proposed scope profile: ${error.message}`);
 }

@@ -14,6 +14,9 @@ import { search } from "./search.js";
 import { judge } from "./judge.js";
 import { write } from "./write.js";
 import { getWeekOf } from "../lib/dates.js";
+import { ingestInbox } from "../feedback/ingest-inbox.js";
+import { runSourceAudits } from "../feedback/source-audit.js";
+import { mergeUsage } from "../lib/claude.js";
 
 async function main() {
   const weekOf = getWeekOf();
@@ -21,6 +24,23 @@ async function main() {
 
   const run = await createPipelineRun("weekly");
   console.log(`pipeline_runs.id = ${run.id}`);
+
+  // Best-effort, same pattern as email/send.ts — an unconfigured or
+  // failing inbox/audit step never fails the run over the main
+  // search+judge+write path. This is how "forward something during the
+  // day, it folds into the next run" actually happens: both freshly
+  // ingested items and anything still pending from the Capture web form
+  // get audited every weekly run.
+  let inboxIngested = 0;
+  try {
+    const ingestResult = await ingestInbox();
+    inboxIngested = ingestResult.ingested;
+    if (!ingestResult.skipped) {
+      console.log(`Inbox ingestion: ${ingestResult.ingested} new forwarded item(s).`);
+    }
+  } catch (err) {
+    console.warn(`Inbox ingestion failed, continuing: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   try {
     const [scopeProfileVersion, knownSources, existingSourceUrls] = await Promise.all([
@@ -53,11 +73,33 @@ async function main() {
     const itemsWritten = await write(validated, run.id, weekOf);
     console.log(`Wrote ${itemsWritten} digest item(s).`);
 
+    // Same best-effort treatment as inbox ingestion above.
+    let auditNote = "audit=skipped";
+    try {
+      const auditResult = await runSourceAudits();
+      mergeUsage(usage, auditResult.usage);
+      if (auditResult.processed > 0) {
+        console.log(
+          `Source-coverage audit: ${auditResult.processed} item(s) processed ` +
+            `(${auditResult.findable} independently findable, ${auditResult.notFindable} not, ` +
+            `${auditResult.candidatesFlagged} candidate source(s) flagged).`,
+        );
+      }
+      auditNote =
+        `audit_processed=${auditResult.processed} audit_findable=${auditResult.findable} ` +
+        `audit_not_findable=${auditResult.notFindable} audit_candidates_flagged=${auditResult.candidatesFlagged}`;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`Source-coverage audit failed, continuing: ${message}`);
+      auditNote = `audit_error=${message}`;
+    }
+
     const notes =
       `candidates=${candidates.length} validated=${validated.length} rejected=${rejected.length} | ` +
       `api_calls=${usage.api_calls} input_tokens=${usage.input_tokens} output_tokens=${usage.output_tokens} ` +
       `cache_write=${usage.cache_creation_input_tokens} cache_read=${usage.cache_read_input_tokens} ` +
-      `web_searches=${usage.web_search_requests} est_cost_usd=${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis})`;
+      `web_searches=${usage.web_search_requests} est_cost_usd=${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}) | ` +
+      `inbox_ingested=${inboxIngested} | ${auditNote}`;
     await finishPipelineRun(run.id, "success", itemsWritten, notes);
     console.log("Weekly run complete.");
   } catch (err) {

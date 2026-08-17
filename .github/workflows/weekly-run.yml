@@ -26,4 +26,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Both optional — inbox ingestion (pipeline/feedback/ingest-inbox.ts)
+          # gracefully skips itself when either is unset, same as the
+          # Resend vars already do for email.
+          FEEDBACK_INBOX_ADDRESS: ${{ secrets.FEEDBACK_INBOX_ADDRESS }}
+          FEEDBACK_INBOX_APP_PASSWORD: ${{ secrets.FEEDBACK_INBOX_APP_PASSWORD }}
         run: npm run weekly

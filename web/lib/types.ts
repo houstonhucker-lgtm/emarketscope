@@ -63,3 +63,26 @@ export interface Feedback {
   vote: "up" | "down";
   note: string | null;
 }
+
+export interface InvestorSignalItem {
+  title: string;
+  summary: string;
+  source_url: string;
+  source_name?: string;
+  retailer: Retailer;
+  published_date?: string;
+}
+
+export interface Rollup {
+  id: string;
+  created_at: string;
+  run_id: string | null;
+  rollup_type: "monthly" | "quarterly";
+  period_start: string;
+  period_end: string;
+  period_label: string;
+  narrative: string;
+  investor_signal: InvestorSignalItem[] | null;
+  email_sent: boolean;
+  email_error: string | null;
+}

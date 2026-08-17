@@ -1,0 +1,34 @@
+name: Monthly rollup
+
+on:
+  schedule:
+    # 1st of the month, 09:00 UTC — after the weekly run's usual Monday
+    # slot, so the last week of the month has almost certainly landed.
+    - cron: "0 9 1 * *"
+  workflow_dispatch: {} # manual trigger, for testing without waiting a month
+
+jobs:
+  monthly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Run monthly rollup
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Optional — email/send.ts falls back to a local file if unset,
+          # same as the backfill summary email.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_EMAIL_TO: ${{ secrets.DIGEST_EMAIL_TO }}
+          DIGEST_EMAIL_FROM: ${{ secrets.DIGEST_EMAIL_FROM }}
+        run: npm run monthly

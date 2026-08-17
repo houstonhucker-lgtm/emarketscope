@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import "dotenv/config";
-import type { CandidateItem, KnownSource, ScopeProfile } from "./types.js";
+import type { CandidateItem, InvestorSignalItem, KnownSource, ScopeProfile } from "./types.js";
 
 // Sonnet 5 list pricing (per MTok). Intro rate applies through 2026-08-31,
 // per the Anthropic pricing page; standard rate applies after. Used only to
@@ -90,6 +90,8 @@ const SEARCH_PROMPT = readFileSync(join(__dirname, "..", "prompts", "search.md")
 const BACKFILL_PROMPT = readFileSync(join(__dirname, "..", "prompts", "backfill.md"), "utf-8");
 const SOURCE_AUDIT_PROMPT = readFileSync(join(__dirname, "..", "prompts", "source-audit.md"), "utf-8");
 const SCOPE_PROPOSAL_PROMPT = readFileSync(join(__dirname, "..", "prompts", "scope-proposal.md"), "utf-8");
+const ROLLUP_NARRATIVE_PROMPT = readFileSync(join(__dirname, "..", "prompts", "rollup-narrative.md"), "utf-8");
+const INVESTOR_SIGNAL_PROMPT = readFileSync(join(__dirname, "..", "prompts", "investor-signal.md"), "utf-8");
 
 // maxRetries raised from the SDK default (2) to 5: a real 8-chunk backfill
 // run hit a transient 529 overloaded_error on chunk 2/8 with the default,
@@ -123,6 +125,9 @@ const BACKFILL_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_BACKFILL_MAX_WEB_SEA
 // Narrower check than a full search pass -- confirming/denying one
 // specific story, not discovering new ones.
 const AUDIT_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_AUDIT_MAX_WEB_SEARCHES ?? 10);
+// Three retailers x (earnings call + shareholder letter) = 6 natural
+// targets; headroom for follow-up searches per retailer.
+const INVESTOR_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_INVESTOR_MAX_WEB_SEARCHES ?? 30);
 const MAX_TOKENS = 16000;
 const MAX_RESUMES = 3; // guards against runaway pause_turn loops
 
@@ -180,6 +185,39 @@ const AUDIT_SCHEMA = {
     notes: { type: "string" },
   },
   required: ["was_independently_findable", "notes"],
+  additionalProperties: false,
+} as const;
+
+const NARRATIVE_SCHEMA = {
+  type: "object",
+  properties: {
+    narrative: { type: "string" },
+  },
+  required: ["narrative"],
+  additionalProperties: false,
+} as const;
+
+const INVESTOR_SIGNAL_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          summary: { type: "string" },
+          source_url: { type: "string" },
+          source_name: { type: "string" },
+          retailer: { type: "string", enum: ["walmart", "amazon", "target"] },
+          published_date: { type: "string" },
+        },
+        required: ["title", "summary", "source_url", "retailer"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
   additionalProperties: false,
 } as const;
 
@@ -625,4 +663,93 @@ export async function proposeScopeChanges(
   if (!text) return { proposal: null, usage };
   const proposal = extractLastJsonObject(text, "scope proposal", isScopeProposalShape);
   return { proposal, usage };
+}
+
+// Monthly/quarterly rollup narrative. No web_search (maxWebSearches 0) --
+// synthesizes only from the period's already-collected items, same
+// reasoning-over-given-evidence pattern as proposeScopeChanges above.
+
+export interface NarrativeInputItem {
+  title: string;
+  summary: string;
+  pillar: string;
+  categories: string[];
+  retailers: string[];
+  date: string; // week_of for digest items, event_date for calendar entries
+}
+
+export interface NarrativeAndUsage {
+  narrative: string | null;
+  usage: RunUsage;
+}
+
+function isNarrativeShape(v: unknown): v is { narrative: string } {
+  return !!v && typeof v === "object" && typeof (v as Record<string, unknown>).narrative === "string";
+}
+
+export async function synthesizeNarrative(
+  items: NarrativeInputItem[],
+  periodLabel: string,
+): Promise<NarrativeAndUsage> {
+  const dynamicContext = [
+    `## Period: ${periodLabel}`,
+    `## Items (${items.length})`,
+    ...items.map(
+      (item, i) =>
+        `${i + 1}. [${item.pillar}] ${item.title} (${item.retailers.join(", ")}; ${item.categories.join(", ")}; ${item.date})\n   ${item.summary}`,
+    ),
+  ].join("\n");
+
+  const { text, usage } = await executeSearchRequest(
+    [
+      { text: ROLLUP_NARRATIVE_PROMPT, cacheControl: true },
+      { text: dynamicContext },
+    ],
+    NARRATIVE_SCHEMA,
+    0, // no web search — see header comment
+    `Write the synthesized narrative for ${periodLabel} now.`,
+    "rollup narrative",
+  );
+  if (!text) return { narrative: null, usage };
+  const parsed = extractLastJsonObject(text, "rollup narrative", isNarrativeShape);
+  return { narrative: parsed.narrative, usage };
+}
+
+// Quarterly-only investor/earnings signal search. Uses web_search — this
+// is genuinely new content, not something the weekly pipeline already
+// collected (see prompts/investor-signal.md).
+
+export interface InvestorSignalAndUsage {
+  items: InvestorSignalItem[];
+  usage: RunUsage;
+}
+
+function isInvestorItemsShape(v: unknown): v is { items: InvestorSignalItem[] } {
+  return !!v && typeof v === "object" && Array.isArray((v as { items?: unknown }).items);
+}
+
+export async function searchInvestorSignal(
+  quarterLabel: string,
+  rangeStart: string,
+  rangeEnd: string,
+): Promise<InvestorSignalAndUsage> {
+  const dynamicContext = [
+    `## Quarter: ${quarterLabel}`,
+    `date_range: ${rangeStart} to ${rangeEnd}`,
+    `today: ${new Date().toISOString().slice(0, 10)}`,
+  ].join("\n");
+
+  const { text, usage } = await executeSearchRequest(
+    [
+      { text: INVESTOR_SIGNAL_PROMPT, cacheControl: true },
+      { text: dynamicContext },
+    ],
+    INVESTOR_SIGNAL_SCHEMA,
+    INVESTOR_MAX_WEB_SEARCHES,
+    `Search for ${quarterLabel} investor/earnings signal now.`,
+    "investor signal",
+  );
+  if (!text) return { items: [], usage };
+  const parsed = extractLastJsonObject(text, "investor signal", isInvestorItemsShape);
+  return { items: parsed.items ?? [], usage };
 }

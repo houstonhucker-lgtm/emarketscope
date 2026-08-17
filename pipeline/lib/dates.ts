@@ -38,3 +38,29 @@ export function chunkDateRange(start: Date, end: Date, monthsPerChunk = 3): Date
 
   return chunks;
 }
+
+export interface DateRange {
+  start: string; // YYYY-MM-DD, inclusive
+  end: string; // YYYY-MM-DD, exclusive
+  label: string; // human-readable, e.g. "August 2026" or "Q3 2026"
+}
+
+// The calendar month immediately before `now`'s month — e.g. run on
+// 2026-09-01 (or any day in September) and get August 1 - September 1.
+export function getPreviousMonthRange(now: Date = new Date()): DateRange {
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const label = start.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10), label };
+}
+
+// The calendar quarter immediately before `now`'s quarter — e.g. run on
+// 2026-10-01 and get Q3 2026 (July 1 - October 1).
+export function getPreviousQuarterRange(now: Date = new Date()): DateRange {
+  const currentQuarterStartMonth = Math.floor(now.getUTCMonth() / 3) * 3;
+  const end = new Date(Date.UTC(now.getUTCFullYear(), currentQuarterStartMonth, 1));
+  const start = new Date(Date.UTC(now.getUTCFullYear(), currentQuarterStartMonth - 3, 1));
+  const quarterNum = Math.floor(start.getUTCMonth() / 3) + 1;
+  const label = `Q${quarterNum} ${start.getUTCFullYear()}`;
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10), label };
+}

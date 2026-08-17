@@ -1,0 +1,32 @@
+name: Quarterly rollup
+
+on:
+  schedule:
+    # 1st of Jan/Apr/Jul/Oct, 10:00 UTC — after the monthly run's slot on
+    # the same day, so the quarter's last monthly rollup has landed first.
+    - cron: "0 10 1 1,4,7,10 *"
+  workflow_dispatch: {} # manual trigger, for testing without waiting a quarter
+
+jobs:
+  quarterly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Run quarterly rollup
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_EMAIL_TO: ${{ secrets.DIGEST_EMAIL_TO }}
+          DIGEST_EMAIL_FROM: ${{ secrets.DIGEST_EMAIL_FROM }}
+        run: npm run quarterly

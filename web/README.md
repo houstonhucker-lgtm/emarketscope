@@ -32,8 +32,12 @@ everywhere is a clickable link back to its source
 (`components/ItemCard.tsx`), with thumbs up/down feedback
 (`components/FeedbackButtons.tsx`).
 
-Monthly/Quarterly are placeholder shells until Phase 6's synthesis job
-exists — there's no rollup data to show yet.
+Monthly/Quarterly (`components/RollupView.tsx`) read from the `rollups`
+table Phase 6's synthesis jobs write to — the synthesized narrative for
+the most recent period, that period's itemized items (queried from
+`digest_items`/`calendar_entries` by date range, not duplicated into
+`rollups`), Investor & Earnings Signal for quarterly, and a collapsed
+history of older rollups below.
 
 ## Calendar color-coding
 

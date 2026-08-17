@@ -11,16 +11,22 @@ Full spec: [`docs/SPEC.md`](docs/SPEC.md).
 
 Build in progress. Phases:
 
-0. Scaffolding
-1. Data layer (Supabase schema)
-2. Weekly pipeline — **gated on setting a hard monthly spend limit in the
-   Anthropic console first**
-3. Historical backfill (~2 years, seeds the calendar)
-4. Web app (Weekly / Monthly / Quarterly / Calendar / Capture tabs,
-   installable to phone home screen)
-5. Feedback loop (forwarded-inbox ingestion, source-coverage audit)
-6. Monthly & quarterly rollups (email via Resend)
-7. Guardrails & polish
+- [x] 0. Scaffolding
+- [x] 1. Data layer (Supabase schema)
+- [x] 2. Weekly pipeline
+- [x] 3. Historical backfill (~2 years, seeds the calendar)
+- [x] 4. Web app (Weekly / Monthly / Quarterly / Calendar / Capture tabs,
+      real auth, installable to phone home screen)
+- [x] 5. Feedback loop (inbox ingestion, source-coverage audit,
+      scope-profile review-checkpoint proposal)
+- [x] 6. Monthly & quarterly rollups (synthesized narrative + email via
+      Resend + persisted for the web app's tabs)
+- [ ] 7. Guardrails & polish
+
+Not yet exercised for real: inbox ingestion (`FEEDBACK_INBOX_APP_PASSWORD`
+not generated yet) and Resend email delivery (not configured yet — every
+email so far has correctly fallen back to a local file per the graceful-
+fallback design).
 
 ## Structure
 

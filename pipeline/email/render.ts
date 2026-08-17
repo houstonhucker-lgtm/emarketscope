@@ -41,7 +41,7 @@ function sectionHtml(heading: string, items: EmailSectionItem[]): string {
     </ul>`;
 }
 
-export function renderEmailHtml(title: string, sections: EmailSections): string {
+export function renderEmailHtml(title: string, sections: EmailSections, narrative?: string): string {
   const categoryBlocks = (Object.keys(CATEGORY_LABELS) as Category[])
     .map((category) => {
       const items = sections.categoryHighlights[category];
@@ -65,10 +65,18 @@ export function renderEmailHtml(title: string, sections: EmailSections): string 
     sectionHtml("Investor & Earnings Signal", sections.investorEarningsSignal),
   ].join("");
 
+  const narrativeHtml = narrative
+    ? `<div style="margin: 16px 0 8px; line-height: 1.6;">${narrative
+        .split(/\n{2,}/)
+        .map((p) => `<p style="margin: 0 0 12px;">${escapeHtml(p)}</p>`)
+        .join("")}</div>`
+    : "";
+
   return `<!doctype html>
 <html>
   <body style="font-family: -apple-system, Helvetica, Arial, sans-serif; color: #1a1a1a; max-width: 640px; margin: 0 auto; padding: 24px;">
     <h1 style="font-size: 22px; margin-bottom: 4px;">${escapeHtml(title)}</h1>
+    ${narrativeHtml}
     ${body || `<p style="color: #666;">Nothing found for this period.</p>`}
   </body>
 </html>`;
@@ -83,7 +91,7 @@ function sectionText(heading: string, items: EmailSectionItem[]): string {
   return `\n${heading}\n${"-".repeat(heading.length)}\n${items.map(itemText).join("\n\n")}\n`;
 }
 
-export function renderEmailText(title: string, sections: EmailSections): string {
+export function renderEmailText(title: string, sections: EmailSections, narrative?: string): string {
   const categoryBlocks = (Object.keys(CATEGORY_LABELS) as Category[])
     .map((category) => {
       const items = sections.categoryHighlights[category];
@@ -102,5 +110,6 @@ export function renderEmailText(title: string, sections: EmailSections): string 
     sectionText("Investor & Earnings Signal", sections.investorEarningsSignal),
   ].join("");
 
-  return `${title}\n${"=".repeat(title.length)}\n${parts || "\nNothing found for this period.\n"}`;
+  const narrativeText = narrative ? `\n${narrative}\n` : "";
+  return `${title}\n${"=".repeat(title.length)}\n${narrativeText}${parts || "\nNothing found for this period.\n"}`;
 }

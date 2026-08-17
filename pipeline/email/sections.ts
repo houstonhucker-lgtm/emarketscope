@@ -18,11 +18,28 @@
 // omitted by the renderer, not padded — this module just organizes items;
 // pipeline/email/render.ts decides what to skip.
 
-import type { CandidateItem, Category } from "../lib/types.js";
+import type { Category, Pillar } from "../lib/types.js";
 
 export interface EmailSectionItem {
   title: string;
   body: string;
+  source_url: string;
+  source_name?: string | null;
+}
+
+// The minimal shape this module actually needs -- not the full
+// CandidateItem (which also carries judge-time fields like
+// relevance_reason that never get persisted to digest_items, so a
+// DigestItemRow read back from the DB couldn't satisfy it). CandidateItem
+// and DigestItemRow both structurally satisfy this without any mapping,
+// which is the point: backfill/weekly pass CandidateItem[] straight from
+// judge.ts, monthly/quarterly pass DigestItemRow[] straight from a
+// Supabase query.
+export interface EmailableItem {
+  title: string;
+  summary: string;
+  pillar: Pillar;
+  categories: Category[];
   source_url: string;
   source_name?: string | null;
 }
@@ -36,7 +53,7 @@ export interface EmailSections {
   investorEarningsSignal: EmailSectionItem[]; // populated only by the quarterly job
 }
 
-function toSectionItem(item: CandidateItem): EmailSectionItem {
+function toSectionItem(item: EmailableItem): EmailSectionItem {
   return {
     title: item.title,
     body: item.summary,
@@ -46,7 +63,7 @@ function toSectionItem(item: CandidateItem): EmailSectionItem {
 }
 
 export function buildEmailSections(
-  items: CandidateItem[],
+  items: EmailableItem[],
   investorEarningsSignal: EmailSectionItem[] = [],
 ): EmailSections {
   const keyDates = items.filter((i) => i.pillar === "calendar").map(toSectionItem);

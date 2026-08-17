@@ -6,10 +6,13 @@ import { createClient } from "@supabase/supabase-js";
 import "dotenv/config";
 import type {
   CalendarEntryInsert,
+  CalendarEntryRow,
   DigestItemInsert,
+  DigestItemRow,
   ForwardedItem,
   KnownSource,
   PipelineRun,
+  RollupInsert,
   RunStatus,
   RunType,
   ScopeProfile,
@@ -286,4 +289,43 @@ export async function insertProposedScopeProfile(
     proposed_reason: proposedReason,
   });
   if (error) throw new Error(`Failed to insert proposed scope profile: ${error.message}`);
+}
+
+// --- Monthly/quarterly rollups ---
+
+// [periodStart, periodEnd) by week_of -- a reasonable approximation for a
+// personal-scale tool; a week straddling the boundary lands wherever its
+// Monday falls, same grouping weekly/page.tsx already uses.
+export async function getDigestItemsInRange(periodStart: string, periodEnd: string): Promise<DigestItemRow[]> {
+  const { data, error } = await supabase
+    .from("digest_items")
+    .select("*")
+    .eq("is_backfill", false)
+    .gte("week_of", periodStart)
+    .lt("week_of", periodEnd)
+    .order("week_of", { ascending: true })
+    .returns<DigestItemRow[]>();
+  if (error) throw new Error(`Failed to load digest items in range: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getCalendarEntriesInRange(
+  periodStart: string,
+  periodEnd: string,
+): Promise<CalendarEntryRow[]> {
+  const { data, error } = await supabase
+    .from("calendar_entries")
+    .select("*")
+    .eq("is_backfill", false)
+    .gte("event_date", periodStart)
+    .lt("event_date", periodEnd)
+    .order("event_date", { ascending: true })
+    .returns<CalendarEntryRow[]>();
+  if (error) throw new Error(`Failed to load calendar entries in range: ${error.message}`);
+  return data ?? [];
+}
+
+export async function insertRollup(rollup: RollupInsert): Promise<void> {
+  const { error } = await supabase.from("rollups").insert(rollup);
+  if (error) throw new Error(`Failed to insert rollup: ${error.message}`);
 }

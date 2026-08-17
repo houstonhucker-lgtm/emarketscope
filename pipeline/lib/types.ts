@@ -109,6 +109,42 @@ export interface CandidateItem {
 // A CandidateItem that has passed judge.ts's validation.
 export type ValidatedItem = CandidateItem;
 
+// Read shape for an existing digest_items row (used by monthly/quarterly
+// synthesis, which queries already-written items rather than producing
+// new ones).
+export interface DigestItemRow {
+  id: string;
+  created_at: string;
+  run_id: string | null;
+  week_of: string;
+  title: string;
+  summary: string;
+  pillar: Pillar;
+  retailers: Retailer[];
+  categories: Category[];
+  source_url: string;
+  source_name: string | null;
+  source_published_at: string | null;
+  tags: string[];
+  is_backfill: boolean;
+}
+
+export interface CalendarEntryRow {
+  id: string;
+  created_at: string;
+  event_date: string;
+  event_date_end: string | null;
+  title: string;
+  description: string | null;
+  pillar: Pillar;
+  retailers: Retailer[];
+  categories: Category[];
+  source_url: string;
+  source_name: string | null;
+  related_digest_item_id: string | null;
+  is_backfill: boolean;
+}
+
 export interface DigestItemInsert {
   run_id: string;
   week_of: string;
@@ -136,4 +172,28 @@ export interface CalendarEntryInsert {
   source_name: string | null;
   related_digest_item_id: string | null;
   is_backfill: boolean;
+}
+
+// Quarterly-only. Not a digest_item -- earnings/shareholder-letter
+// commentary doesn't carry a pillar or category, it's a distinct
+// fixed-shape section (Investor & Earnings Signal).
+export interface InvestorSignalItem {
+  title: string;
+  summary: string;
+  source_url: string;
+  source_name?: string;
+  retailer: Retailer;
+  published_date?: string;
+}
+
+export interface RollupInsert {
+  run_id: string;
+  rollup_type: "monthly" | "quarterly";
+  period_start: string;
+  period_end: string;
+  period_label: string;
+  narrative: string;
+  investor_signal: InvestorSignalItem[] | null;
+  email_sent: boolean;
+  email_error: string | null;
 }

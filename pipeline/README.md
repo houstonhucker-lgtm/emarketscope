@@ -9,9 +9,17 @@ from or is called by `web/`. The web app only reads from Supabase.
 - `backfill/` — Phase 3. One-time ~2-year historical backfill, reuses
   `weekly/search.ts` and `weekly/judge.ts` with a wider date range and a
   lighter detail bar.
-- `monthly/` — Phase 6. Synthesizes the month's weekly items into a rollup.
-- `quarterly/` — Phase 6. Deeper rollup; also ingests shareholder letters
-  and earnings call commentary from Walmart, Amazon, and Target.
+- `monthly/synthesize.ts` — Phase 6. Previous calendar month's
+  digest_items -> a synthesized narrative (Claude, no web search — reasons
+  only over already-collected items) + the same itemized email sections
+  as everywhere else. Sends the email and persists a `rollups` row so the
+  web app's Monthly tab has something to read, not just "check your
+  email."
+- `quarterly/synthesize.ts` — Phase 6. Same shape over the previous
+  quarter, plus the one section monthly never gets: Investor & Earnings
+  Signal, from a dedicated web-search call against Walmart/Amazon/Target
+  shareholder letters and earnings call commentary (genuinely new
+  content, unlike the rest of the rollup).
 - `feedback/` — Phase 5.
   - `ingest-inbox.ts` — polls emarketscope@gmail.com via IMAP, inserts
     unseen messages into `forwarded_items`. Graceful fallback (skips, does

@@ -202,3 +202,5 @@ outside P&G's systems.
   projects, e.g. Fairways)
 - Local folder: `~/dev/emarketscope` — sibling to `~/dev/fairways`, not
   nested inside it
+- Feedback capture inbox: `emarketscope@gmail.com` (Gmail + IMAP app
+  password, per Phase 5)

@@ -1,6 +1,9 @@
-// Resend wrapper for digest email delivery. Used by the backfill's
-// one-time summary now, and by monthly/quarterly (Phase 6) once built —
-// same send path for all of them.
+// Resend wrapper for all outbound email — digest sends (backfill summary,
+// monthly/quarterly rollups) and, as of Phase 7, failure-notification
+// alerts too (see lib/notify-failure.ts), which is why this is named
+// sendEmail rather than sendDigestEmail even though DIGEST_EMAIL_TO/FROM
+// are still the env vars that configure it: there's one email address
+// this whole system talks to, digest or alert.
 //
 // Best-effort by design: an unconfigured or failing email step should
 // never turn an otherwise-successful pipeline run into a failure — the
@@ -19,7 +22,7 @@ export interface SendResult {
   localFallbackPath?: string;
 }
 
-export async function sendDigestEmail(
+export async function sendEmail(
   subject: string,
   html: string,
   text: string,

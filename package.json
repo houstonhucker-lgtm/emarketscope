@@ -12,7 +12,9 @@
     "backfill": "tsx pipeline/backfill/historical.ts",
     "propose-scope-changes": "tsx pipeline/feedback/propose-scope-changes.ts",
     "monthly": "tsx pipeline/monthly/synthesize.ts",
-    "quarterly": "tsx pipeline/quarterly/synthesize.ts"
+    "quarterly": "tsx pipeline/quarterly/synthesize.ts",
+    "cost-report": "tsx pipeline/reports/cost-report.ts",
+    "notify-failure": "tsx pipeline/notify/failure.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

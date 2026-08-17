@@ -19,8 +19,9 @@ import { judge } from "../weekly/judge.js";
 import { writeBackfill } from "./write.js";
 import { buildEmailSections } from "../email/sections.js";
 import { renderEmailHtml, renderEmailText } from "../email/render.js";
-import { sendDigestEmail } from "../email/send.js";
+import { sendEmail } from "../email/send.js";
 import type { ValidatedItem } from "../lib/types.js";
+import { checkMonthlySpendGuardrail, guardrailNote } from "../lib/guardrails.js";
 
 const BACKFILL_MONTHS = Number(process.env.BACKFILL_MONTHS ?? 24);
 const MONTHS_PER_CHUNK = Number(process.env.BACKFILL_MONTHS_PER_CHUNK ?? 3);
@@ -68,6 +69,21 @@ async function main() {
   const run = await createPipelineRun("backfill");
   console.log(`pipeline_runs.id = ${run.id}`);
 
+  const guardrail = await checkMonthlySpendGuardrail();
+  if (!guardrail.allowed) {
+    const note = guardrailNote(guardrail);
+    console.error(note);
+    await finishPipelineRun(run.id, "failed", { notes: note });
+    process.exitCode = 1;
+    return;
+  }
+  // Backfill is the priciest single job in the whole system and loops
+  // over many chunks, so unlike the single-call weekly/monthly/quarterly
+  // scripts, it also re-checks against this baseline before every chunk
+  // below (baseline + this run's running total vs. the limit) rather than
+  // trusting one check made before chunk 1 to still hold at chunk 8.
+  const { limitUsd, monthToDateUsd: baselineSpendUsd } = guardrail;
+
   const totalUsage: RunUsage = emptyUsage();
   let totalCandidates = 0;
   let totalRejected = 0;
@@ -86,6 +102,21 @@ async function main() {
 
     for (const [i, chunk] of chunks.entries()) {
       console.log(`\n--- Chunk ${i + 1}/${chunks.length}: ${chunk.start} to ${chunk.end} ---`);
+
+      if (limitUsd !== null && baselineSpendUsd + totalUsage.estimated_cost_usd >= limitUsd) {
+        console.error(
+          `GUARDRAIL: month-to-date spend (baseline $${baselineSpendUsd.toFixed(4)} + this run's ` +
+            `$${totalUsage.estimated_cost_usd.toFixed(4)} so far) has reached MONTHLY_SPEND_LIMIT_USD=$${limitUsd.toFixed(2)}. ` +
+            `Stopping backfill before chunk ${i + 1}/${chunks.length}; remaining chunk(s) not attempted.`,
+        );
+        for (let j = i; j < chunks.length; j++) {
+          failedChunks.push({
+            chunk: `${chunks[j].start} to ${chunks[j].end}`,
+            error: "skipped: monthly spend guardrail",
+          });
+        }
+        break;
+      }
 
       // A chunk that fails even after retries is logged and skipped — it
       // does not abort the other 7. This is a one-time job with no weekly
@@ -149,7 +180,7 @@ async function main() {
     const subject = `eMarketScope — Historical Backfill Summary (${rangeLabel})`;
     const html = renderEmailHtml(subject, sections);
     const text = renderEmailText(subject, sections);
-    const emailResult = await sendDigestEmail(subject, html, text);
+    const emailResult = await sendEmail(subject, html, text);
     if (emailResult.sent) {
       console.log("Summary email sent.");
     } else {
@@ -168,7 +199,11 @@ async function main() {
       `cache_write=${totalUsage.cache_creation_input_tokens} cache_read=${totalUsage.cache_read_input_tokens} ` +
       `web_searches=${totalUsage.web_search_requests} est_cost_usd=${totalUsage.estimated_cost_usd.toFixed(4)} (${totalUsage.pricing_basis}) | ` +
       `email_sent=${emailResult.sent}${emailResult.reason ? ` (${emailResult.reason})` : ""}${failedChunksNote}`;
-    await finishPipelineRun(run.id, "success", totalWritten, notes);
+    await finishPipelineRun(run.id, "success", {
+      itemsFound: totalWritten,
+      notes,
+      estimatedCostUsd: totalUsage.estimated_cost_usd,
+    });
 
     console.log(
       `\nBackfill complete. ${totalWritten} item(s) written across ${chunks.length - failedChunks.length}/${chunks.length} chunk(s). ` +
@@ -184,12 +219,11 @@ async function main() {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Backfill failed: ${message}`);
-    await finishPipelineRun(
-      run.id,
-      "failed",
-      totalWritten,
-      `${message} | partial progress: written=${totalWritten}, est_cost_usd=${totalUsage.estimated_cost_usd.toFixed(4)}`,
-    );
+    await finishPipelineRun(run.id, "failed", {
+      itemsFound: totalWritten,
+      notes: `${message} | partial progress: written=${totalWritten}, est_cost_usd=${totalUsage.estimated_cost_usd.toFixed(4)}`,
+      estimatedCostUsd: totalUsage.estimated_cost_usd,
+    });
     process.exitCode = 1;
   }
 }

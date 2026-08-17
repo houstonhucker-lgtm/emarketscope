@@ -16,7 +16,8 @@ import { write } from "./write.js";
 import { getWeekOf } from "../lib/dates.js";
 import { ingestInbox } from "../feedback/ingest-inbox.js";
 import { runSourceAudits } from "../feedback/source-audit.js";
-import { mergeUsage } from "../lib/claude.js";
+import { mergeUsage, emptyUsage, type RunUsage } from "../lib/claude.js";
+import { checkMonthlySpendGuardrail, guardrailNote } from "../lib/guardrails.js";
 
 async function main() {
   const weekOf = getWeekOf();
@@ -24,6 +25,24 @@ async function main() {
 
   const run = await createPipelineRun("weekly");
   console.log(`pipeline_runs.id = ${run.id}`);
+
+  // Checked before any billed work this run (search, and later the
+  // source-coverage audit) -- both are Claude calls. Inbox ingestion
+  // (IMAP polling, no Claude call) still runs regardless, since it's
+  // free and just queues items for whenever the guardrail next clears.
+  const guardrail = await checkMonthlySpendGuardrail();
+  if (!guardrail.allowed) {
+    const note = guardrailNote(guardrail);
+    console.error(note);
+    await finishPipelineRun(run.id, "failed", { notes: note });
+    process.exitCode = 1;
+    return;
+  }
+
+  // Hoisted so the catch block can still report cost-so-far if the run
+  // fails after the search call but before finishPipelineRun's normal
+  // success path -- same reasoning as backfill's totalUsage.
+  const usage: RunUsage = emptyUsage();
 
   // Best-effort, same pattern as email/send.ts — an unconfigured or
   // failing inbox/audit step never fails the run over the main
@@ -53,7 +72,8 @@ async function main() {
       `Loaded scope profile v${scopeProfileVersion.version}, ${knownSources.length} known sources.`,
     );
 
-    const { items: candidates, usage } = await search(scopeProfileVersion.content, knownSources, weekOf);
+    const { items: candidates, usage: searchUsage } = await search(scopeProfileVersion.content, knownSources, weekOf);
+    mergeUsage(usage, searchUsage);
     console.log(`Claude returned ${candidates.length} candidate item(s).`);
     console.log(
       `Usage: ${usage.api_calls} API call(s), ${usage.input_tokens} input tokens, ` +
@@ -100,12 +120,16 @@ async function main() {
       `cache_write=${usage.cache_creation_input_tokens} cache_read=${usage.cache_read_input_tokens} ` +
       `web_searches=${usage.web_search_requests} est_cost_usd=${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}) | ` +
       `inbox_ingested=${inboxIngested} | ${auditNote}`;
-    await finishPipelineRun(run.id, "success", itemsWritten, notes);
+    await finishPipelineRun(run.id, "success", {
+      itemsFound: itemsWritten,
+      notes,
+      estimatedCostUsd: usage.estimated_cost_usd,
+    });
     console.log("Weekly run complete.");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Weekly run failed: ${message}`);
-    await finishPipelineRun(run.id, "failed", null, message);
+    await finishPipelineRun(run.id, "failed", { notes: message, estimatedCostUsd: usage.estimated_cost_usd });
     process.exitCode = 1;
   }
 }

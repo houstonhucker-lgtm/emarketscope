@@ -67,15 +67,27 @@ export async function createPipelineRun(runType: RunType): Promise<PipelineRun> 
   return data as PipelineRun;
 }
 
+export interface FinishPipelineRunOptions {
+  itemsFound?: number | null;
+  notes?: string | null;
+  estimatedCostUsd?: number | null;
+}
+
 export async function finishPipelineRun(
   id: string,
   status: RunStatus,
-  itemsFound: number | null,
-  notes: string | null,
+  options: FinishPipelineRunOptions = {},
 ): Promise<void> {
+  const { itemsFound = null, notes = null, estimatedCostUsd = null } = options;
   const { error } = await supabase
     .from("pipeline_runs")
-    .update({ status, items_found: itemsFound, notes, finished_at: new Date().toISOString() })
+    .update({
+      status,
+      items_found: itemsFound,
+      notes,
+      estimated_cost_usd: estimatedCostUsd,
+      finished_at: new Date().toISOString(),
+    })
     .eq("id", id);
   if (error) throw new Error(`Failed to finalize pipeline run: ${error.message}`);
 }
@@ -328,4 +340,23 @@ export async function getCalendarEntriesInRange(
 export async function insertRollup(rollup: RollupInsert): Promise<void> {
   const { error } = await supabase.from("rollups").insert(rollup);
   if (error) throw new Error(`Failed to insert rollup: ${error.message}`);
+}
+
+// --- Spend guardrail (Phase 7) ---
+
+// Sums estimated_cost_usd across every run_type since the 1st of the
+// current UTC month, including the in-progress row for whatever script
+// is calling this (it's the caller's job to check this *before* creating
+// its own run, or to account for that). Small personal-scale table, so a
+// client-side reduce is simpler and less version-fragile than relying on
+// a PostgREST aggregate query shape.
+export async function getMonthToDateSpendUsd(): Promise<number> {
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const { data, error } = await supabase
+    .from("pipeline_runs")
+    .select("estimated_cost_usd")
+    .gte("started_at", monthStart);
+  if (error) throw new Error(`Failed to load month-to-date spend: ${error.message}`);
+  return (data ?? []).reduce((sum, row) => sum + ((row.estimated_cost_usd as number | null) ?? 0), 0);
 }

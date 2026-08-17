@@ -13,7 +13,7 @@ export type Category =
 
 export type Pillar = "ux_feature" | "signature_event" | "calendar";
 
-export type RunType = "weekly" | "monthly" | "quarterly" | "backfill";
+export type RunType = "weekly" | "monthly" | "quarterly" | "backfill" | "scope_proposal";
 export type RunStatus = "running" | "success" | "failed";
 
 export interface PipelineRun {
@@ -24,6 +24,7 @@ export interface PipelineRun {
   status: RunStatus;
   items_found: number | null;
   notes: string | null;
+  estimated_cost_usd: number | null;
 }
 
 // Anchored to concrete subcategories/products, not bare department names —

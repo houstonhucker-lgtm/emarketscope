@@ -29,4 +29,15 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           DIGEST_EMAIL_TO: ${{ secrets.DIGEST_EMAIL_TO }}
           DIGEST_EMAIL_FROM: ${{ secrets.DIGEST_EMAIL_FROM }}
+          MONTHLY_SPEND_LIMIT_USD: ${{ secrets.MONTHLY_SPEND_LIMIT_USD }}
         run: npm run quarterly
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_EMAIL_TO: ${{ secrets.DIGEST_EMAIL_TO }}
+          DIGEST_EMAIL_FROM: ${{ secrets.DIGEST_EMAIL_FROM }}
+        run: npm run notify-failure -- quarterly

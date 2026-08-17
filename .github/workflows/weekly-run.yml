@@ -31,4 +31,18 @@ jobs:
           # Resend vars already do for email.
           FEEDBACK_INBOX_ADDRESS: ${{ secrets.FEEDBACK_INBOX_ADDRESS }}
           FEEDBACK_INBOX_APP_PASSWORD: ${{ secrets.FEEDBACK_INBOX_APP_PASSWORD }}
+          MONTHLY_SPEND_LIMIT_USD: ${{ secrets.MONTHLY_SPEND_LIMIT_USD }}
         run: npm run weekly
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Optional — falls back to a local file in the runner (lost when
+          # the job ends) if unset, same graceful-fallback as every other
+          # email send in this repo. Configure these to actually get paged.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_EMAIL_TO: ${{ secrets.DIGEST_EMAIL_TO }}
+          DIGEST_EMAIL_FROM: ${{ secrets.DIGEST_EMAIL_FROM }}
+        run: npm run notify-failure -- weekly

@@ -38,9 +38,24 @@ from or is called by `web/`. The web app only reads from Supabase.
   - Both `ingest-inbox.ts` and `source-audit.ts` run as steps inside
     `weekly/run.ts`, best-effort — this is how forwarding something
     "folds into the next run" with no separate script to remember.
-- `email/` — Phase 3 (backfill summary) and Phase 6 (monthly/quarterly).
-  Resend wrapper, shared by both.
-- `lib/` — shared Claude client, Supabase client, shared types.
+- `email/` — Phase 3 (backfill summary), Phase 6 (monthly/quarterly), and
+  Phase 7 (failure alerts). `send.ts`'s `sendEmail` is the one Resend
+  wrapper all three use — renamed from `sendDigestEmail` once it stopped
+  being digest-only.
+- `reports/cost-report.ts` — Phase 7. `npm run cost-report`: human-
+  readable spend totals (all-time, month-to-date, by `run_type`, last 10
+  months) from `pipeline_runs.estimated_cost_usd`. Manual-only, read-only.
+- `notify/failure.ts` — Phase 7. `npm run notify-failure -- <run_type>`,
+  wired as an `if: failure()` step in every scheduled workflow. Looks up
+  the most recent `pipeline_runs` row for that type and emails its
+  `notes` — no need for GitHub Actions to thread log output through,
+  since the failing script already wrote its own failure reason before
+  exiting non-zero.
+- `lib/` — shared Claude client, Supabase client, shared types, and
+  (Phase 7) `guardrails.ts`: the monthly spend guardrail, checked before
+  any billed Claude call in every scheduled/manual script. Soft and
+  cooperative (each script calls it) — the real backstop is still the
+  hard spend limit set in the Anthropic console.
 - `prompts/` — prompt text kept as separate files (not inline strings) so
   Claude's search/judgment behavior can be reviewed and diffed over time,
   especially at the 1–2 month review checkpoint.

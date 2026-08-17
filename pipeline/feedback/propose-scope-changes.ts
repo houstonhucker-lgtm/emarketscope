@@ -8,6 +8,8 @@
 // Invoked manually via `npm run propose-scope-changes`.
 
 import {
+  createPipelineRun,
+  finishPipelineRun,
   getActiveScopeProfile,
   getAllFeedbackWithItems,
   getAllSourceCoverageAudits,
@@ -16,6 +18,7 @@ import {
   insertProposedScopeProfile,
 } from "../lib/supabase.js";
 import { proposeScopeChanges } from "../lib/claude.js";
+import { checkMonthlySpendGuardrail, guardrailNote } from "../lib/guardrails.js";
 
 function buildEvidenceSummary(
   feedback: Awaited<ReturnType<typeof getAllFeedbackWithItems>>,
@@ -86,39 +89,65 @@ function buildEvidenceSummary(
 async function main() {
   console.log("Gathering evidence for scope profile review...");
 
-  const [activeProfile, feedback, audits, candidateSources] = await Promise.all([
-    getActiveScopeProfile(),
-    getAllFeedbackWithItems(),
-    getAllSourceCoverageAudits(),
-    getCandidateKnownSources(),
-  ]);
+  const run = await createPipelineRun("scope_proposal");
+  console.log(`pipeline_runs.id = ${run.id}`);
 
-  const evidenceSummary = buildEvidenceSummary(feedback, audits, candidateSources);
-  console.log(`\n${evidenceSummary}\n`);
-
-  console.log("Asking Claude to draft a proposal...");
-  const { proposal, usage } = await proposeScopeChanges(activeProfile.content, evidenceSummary);
-
-  console.log(
-    `Usage: ${usage.api_calls} API call(s), ${usage.input_tokens} input tokens, ` +
-      `${usage.output_tokens} output tokens. Estimated cost: $${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}).`,
-  );
-
-  if (!proposal) {
-    console.error("No proposal produced (refusal or empty response). Nothing written.");
+  const guardrail = await checkMonthlySpendGuardrail();
+  if (!guardrail.allowed) {
+    const note = guardrailNote(guardrail);
+    console.error(note);
+    await finishPipelineRun(run.id, "failed", { notes: note });
     process.exitCode = 1;
     return;
   }
 
-  const nextVersion = await getNextScopeProfileVersion();
-  await insertProposedScopeProfile(nextVersion, proposal.profile, proposal.change_summary);
+  try {
+    const [activeProfile, feedback, audits, candidateSources] = await Promise.all([
+      getActiveScopeProfile(),
+      getAllFeedbackWithItems(),
+      getAllSourceCoverageAudits(),
+      getCandidateKnownSources(),
+    ]);
 
-  console.log(`\nProposal written as scope_profile_versions v${nextVersion} (status=proposed).`);
-  console.log(`Change summary:\n${proposal.change_summary}`);
-  console.log(
-    `\nThis is NOT active yet -- review it, then promote it deliberately:\n` +
-      `  update scope_profile_versions set status = 'active' where version = ${nextVersion};`,
-  );
+    const evidenceSummary = buildEvidenceSummary(feedback, audits, candidateSources);
+    console.log(`\n${evidenceSummary}\n`);
+
+    console.log("Asking Claude to draft a proposal...");
+    const { proposal, usage } = await proposeScopeChanges(activeProfile.content, evidenceSummary);
+
+    console.log(
+      `Usage: ${usage.api_calls} API call(s), ${usage.input_tokens} input tokens, ` +
+        `${usage.output_tokens} output tokens. Estimated cost: $${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}).`,
+    );
+
+    if (!proposal) {
+      const notes = "No proposal produced (refusal or empty response). Nothing written.";
+      console.error(notes);
+      await finishPipelineRun(run.id, "failed", { notes, estimatedCostUsd: usage.estimated_cost_usd });
+      process.exitCode = 1;
+      return;
+    }
+
+    const nextVersion = await getNextScopeProfileVersion();
+    await insertProposedScopeProfile(nextVersion, proposal.profile, proposal.change_summary);
+
+    console.log(`\nProposal written as scope_profile_versions v${nextVersion} (status=proposed).`);
+    console.log(`Change summary:\n${proposal.change_summary}`);
+    console.log(
+      `\nThis is NOT active yet -- review it, then promote it deliberately:\n` +
+        `  update scope_profile_versions set status = 'active' where version = ${nextVersion};`,
+    );
+
+    const notes =
+      `proposed_version=${nextVersion} | api_calls=${usage.api_calls} input_tokens=${usage.input_tokens} ` +
+      `output_tokens=${usage.output_tokens} est_cost_usd=${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis})`;
+    await finishPipelineRun(run.id, "success", { itemsFound: 1, notes, estimatedCostUsd: usage.estimated_cost_usd });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Scope proposal failed: ${message}`);
+    await finishPipelineRun(run.id, "failed", { notes: message });
+    process.exitCode = 1;
+  }
 }
 
 main();

@@ -15,11 +15,19 @@ import {
   getDigestItemsInRange,
   insertRollup,
 } from "../lib/supabase.js";
-import { mergeUsage, searchInvestorSignal, synthesizeNarrative, type NarrativeInputItem } from "../lib/claude.js";
+import {
+  emptyUsage,
+  mergeUsage,
+  searchInvestorSignal,
+  synthesizeNarrative,
+  type NarrativeInputItem,
+  type RunUsage,
+} from "../lib/claude.js";
 import { getPreviousQuarterRange } from "../lib/dates.js";
 import { buildEmailSections, type EmailSectionItem } from "../email/sections.js";
 import { renderEmailHtml, renderEmailText } from "../email/render.js";
-import { sendDigestEmail } from "../email/send.js";
+import { sendEmail } from "../email/send.js";
+import { checkMonthlySpendGuardrail, guardrailNote } from "../lib/guardrails.js";
 
 async function main() {
   const period = getPreviousQuarterRange();
@@ -27,6 +35,17 @@ async function main() {
 
   const run = await createPipelineRun("quarterly");
   console.log(`pipeline_runs.id = ${run.id}`);
+
+  const guardrail = await checkMonthlySpendGuardrail();
+  if (!guardrail.allowed) {
+    const note = guardrailNote(guardrail);
+    console.error(note);
+    await finishPipelineRun(run.id, "failed", { notes: note });
+    process.exitCode = 1;
+    return;
+  }
+
+  const usage: RunUsage = emptyUsage();
 
   try {
     const [items, calendarEntries] = await Promise.all([
@@ -44,7 +63,8 @@ async function main() {
       date: item.week_of,
     }));
 
-    const { narrative, usage } = await synthesizeNarrative(narrativeInput, period.label);
+    const { narrative, usage: narrativeUsage } = await synthesizeNarrative(narrativeInput, period.label);
+    mergeUsage(usage, narrativeUsage);
     console.log(
       `Narrative usage: ${usage.api_calls} API call(s), $${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}).`,
     );
@@ -76,7 +96,7 @@ async function main() {
     const subject = `eMarketScope — Quarterly Rollup: ${period.label}`;
     const html = renderEmailHtml(subject, sections, finalNarrative);
     const text = renderEmailText(subject, sections, finalNarrative);
-    const emailResult = await sendDigestEmail(subject, html, text);
+    const emailResult = await sendEmail(subject, html, text);
     if (emailResult.sent) {
       console.log("Rollup email sent.");
     } else {
@@ -101,12 +121,16 @@ async function main() {
       `api_calls=${usage.api_calls} input_tokens=${usage.input_tokens} output_tokens=${usage.output_tokens} ` +
       `web_searches=${usage.web_search_requests} est_cost_usd=${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}) | ` +
       `email_sent=${emailResult.sent}`;
-    await finishPipelineRun(run.id, "success", items.length, notes);
+    await finishPipelineRun(run.id, "success", {
+      itemsFound: items.length,
+      notes,
+      estimatedCostUsd: usage.estimated_cost_usd,
+    });
     console.log("Quarterly rollup complete.");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Quarterly rollup failed: ${message}`);
-    await finishPipelineRun(run.id, "failed", null, message);
+    await finishPipelineRun(run.id, "failed", { notes: message, estimatedCostUsd: usage.estimated_cost_usd });
     process.exitCode = 1;
   }
 }

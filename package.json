@@ -5,7 +5,7 @@
   "description": "Scheduled pipeline scripts for eMarketScope, run by GitHub Actions.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "weekly": "tsx pipeline/weekly/run.ts",

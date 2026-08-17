@@ -60,7 +60,7 @@ email exercising that same path).
 | `ANTHROPIC_API_KEY` | every script that calls Claude | Yes (except `notify-failure`, `cost-report`) |
 | `RESEND_API_KEY`, `DIGEST_EMAIL_TO`, `DIGEST_EMAIL_FROM` | any email send (digests + failure alerts) | No — falls back to a local `.email-fallback/*.html` file when unset |
 | `FEEDBACK_INBOX_ADDRESS`, `FEEDBACK_INBOX_APP_PASSWORD` | weekly's inbox-ingestion step | No — inbox polling is skipped when unset |
-| `MONTHLY_SPEND_LIMIT_USD` | the spend guardrail, checked before any billed Claude call | No — no ceiling enforced when unset |
+| `MONTHLY_SPEND_LIMIT_USD` | the spend guardrail, checked before any billed Claude call | No — but unlike every other row in this table, "set but broken" ≠ "unset": a malformed value fails **closed** (blocks all runs) rather than being treated as no limit |
 | `ALLOWED_EMAILS` (web/) | login allowlist | Yes, for the web app |
 
 Same vars, twice: once in `.env` for local runs, once as GitHub repo
@@ -118,10 +118,15 @@ row — it's just superseded, not deleted.
   email first (or `.email-fallback/` locally if Resend isn't
   configured); it's built from the same `pipeline_runs.notes` the
   Actions log has, but doesn't require digging through step output.
-- *A run failed with a `GUARDRAIL:` note* — month-to-date spend
-  (`npm run cost-report`) has reached `MONTHLY_SPEND_LIMIT_USD`. Raise
-  the limit or wait for next month; nothing was left partially spent —
-  the check runs before any billed call.
+- *A run failed with a `GUARDRAIL:` note* — read which case it is before
+  touching anything, the fix is different: "month-to-date spend ... has
+  reached MONTHLY_SPEND_LIMIT_USD" means real spend hit a real limit
+  (`npm run cost-report` for the number) — raise the limit or wait for
+  next month. "... is not a valid positive number" means the env var
+  itself is broken (typo, truncated `.env`) — this fails *closed* on
+  purpose, so every run blocks until it's fixed, not just the one that
+  happened to catch it. Either way nothing was left partially spent — the
+  check runs before any billed call.
 - *Email isn't arriving* — check `.email-fallback/*.html` first (if a
   file landed there, the render worked fine and this is purely a
   delivery/credentials problem, not a content bug); then confirm

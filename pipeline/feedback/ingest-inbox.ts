@@ -159,32 +159,43 @@ async function runSession(client: ImapFlow): Promise<IngestResult> {
       return { ingested: 0, skipped: false };
     }
 
-    for await (const message of client.fetch(uids, { source: true, uid: true }, { uid: true })) {
-      if (!message.source) continue;
+    // One UID per FETCH command, not one batched `UID FETCH 1,2,3 (...)`.
+    // Root-caused directly: the exact same three messages fetched
+    // instantly and reliably one at a time (under 130ms each), every
+    // single time, while the batched multi-UID form hung with zero
+    // response, consistently, across two real GitHub Actions runs hours
+    // apart and a local run. Individual FETCH commands cost a few more
+    // round trips -- irrelevant for the handful of forwarded emails this
+    // inbox sees between weekly runs, and worth it outright for
+    // "actually completes" over "hangs indefinitely."
+    for (const uid of uids) {
+      for await (const message of client.fetch([uid], { source: true, uid: true }, { uid: true })) {
+        if (!message.source) continue;
 
-      const parsed = await simpleParser(message.source);
-      const fromEmail = parsed.from?.value?.[0]?.address ?? null;
-      const subject = parsed.subject ?? null;
-      const bodyText = (parsed.text ?? parsed.html ?? "").toString().slice(0, MAX_BODY_CHARS);
-      const urlMatch = bodyText.match(URL_REGEX);
+        const parsed = await simpleParser(message.source);
+        const fromEmail = parsed.from?.value?.[0]?.address ?? null;
+        const subject = parsed.subject ?? null;
+        const bodyText = (parsed.text ?? parsed.html ?? "").toString().slice(0, MAX_BODY_CHARS);
+        const urlMatch = bodyText.match(URL_REGEX);
 
-      const { error } = await supabase.from("forwarded_items").insert({
-        from_email: fromEmail,
-        subject,
-        body: bodyText || null,
-        extracted_url: urlMatch ? urlMatch[0] : null,
-        status: "pending",
-      });
+        const { error } = await supabase.from("forwarded_items").insert({
+          from_email: fromEmail,
+          subject,
+          body: bodyText || null,
+          extracted_url: urlMatch ? urlMatch[0] : null,
+          status: "pending",
+        });
 
-      if (error) {
-        // Leave unseen so it's retried on the next run rather than
-        // silently lost.
-        console.warn(`Failed to save forwarded item (uid ${message.uid}): ${error.message}`);
-        continue;
+        if (error) {
+          // Leave unseen so it's retried on the next run rather than
+          // silently lost.
+          console.warn(`Failed to save forwarded item (uid ${message.uid}): ${error.message}`);
+          continue;
+        }
+
+        await client.messageFlagsAdd(message.uid, ["\\Seen"], { uid: true });
+        ingested++;
       }
-
-      await client.messageFlagsAdd(message.uid, ["\\Seen"], { uid: true });
-      ingested++;
     }
   } finally {
     lock.release();

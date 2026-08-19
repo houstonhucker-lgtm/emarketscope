@@ -3,9 +3,9 @@ import LoginForm from "./LoginForm";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; reason?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, reason } = await searchParams;
   const errorMessage =
     error === "not_allowed"
       ? "That account isn't on the access list."
@@ -23,6 +23,13 @@ export default async function LoginPage({
         {errorMessage && (
           <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-400">
             {errorMessage}
+          </p>
+        )}
+        {reason && (
+          // TEMPORARY diagnostic -- see app/auth/callback/route.ts. Pull
+          // this block once the real cause is found.
+          <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 font-mono text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+            debug: {reason}
           </p>
         )}
         <LoginForm />

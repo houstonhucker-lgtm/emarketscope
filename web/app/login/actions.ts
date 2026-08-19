@@ -23,10 +23,23 @@ export async function sendMagicLink(_prevState: LoginState, formData: FormData):
   }
 
   const supabase = await createClient();
+
+  const emailRedirectTo = `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`;
+  // TEMPORARY: the code and the Supabase Redirect URLs allowlist both
+  // check out on review, but the actual redirect_to in the sent email is
+  // still a bare origin with no /auth/callback, confirmed on two fresh
+  // tokens -- so something invisible in the runtime value itself (stray
+  // whitespace/newline, wrong protocol) is the remaining suspect. This
+  // prints the exact value Supabase actually receives, wrapped in
+  // brackets so leading/trailing whitespace is visible in the log rather
+  // than silently trimmed by the terminal/log viewer. Remove once
+  // resolved.
+  console.log(`REDIRECT_DEBUG:[${emailRedirectTo}]`);
+
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+      emailRedirectTo,
     },
   });
 

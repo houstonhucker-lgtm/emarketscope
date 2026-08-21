@@ -1,51 +1,68 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isAllowedEmail } from "@/lib/supabase/allowlist";
 
 export interface LoginState {
-  status: "idle" | "sent" | "error";
+  status: "idle" | "code_sent" | "error";
   message?: string;
+  email?: string;
 }
 
-export async function sendMagicLink(_prevState: LoginState, formData: FormData): Promise<LoginState> {
+// One server action drives both steps of the flow, branching on whether
+// a `token` was submitted -- simpler than juggling two useActionState
+// hooks, and it depends only on what was actually submitted this
+// request rather than trusting prior client state.
+//
+// Step 1 (no token): request a code. Step 2 (token present, from the
+// code-entry field that appears once a code has been sent): verify it
+// via supabase.auth.verifyOtp(), which sets the session cookie directly
+// -- no /auth/callback round trip, no clickable link for an email
+// scanner or link-prefetcher to burn before the person reads the email.
+export async function login(_prevState: LoginState, formData: FormData): Promise<LoginState> {
   const email = String(formData.get("email") ?? "").trim();
+  const token = String(formData.get("token") ?? "").trim();
 
   if (!email || !email.includes("@")) {
     return { status: "error", message: "Enter a valid email address." };
   }
 
-  // Checked here, before a magic link is ever requested from Supabase --
-  // not just in proxy.ts after the fact. Generic message either way so
-  // this doesn't double as an email-enumeration oracle.
+  if (token) {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.verifyOtp({ email, token, type: "email" });
+    if (error) {
+      return {
+        status: "code_sent",
+        message: "That code didn't work — it may be wrong or expired. Try again or request a new one.",
+        email,
+      };
+    }
+    redirect("/calendar");
+  }
+
+  // Checked here, before a code is ever requested from Supabase -- not
+  // just in proxy.ts after the fact. Generic message either way so this
+  // doesn't double as an email-enumeration oracle.
   if (!isAllowedEmail(email)) {
     return { status: "error", message: "That email isn't on the access list." };
   }
 
   const supabase = await createClient();
-
-  const emailRedirectTo = `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`;
-  // TEMPORARY: the code and the Supabase Redirect URLs allowlist both
-  // check out on review, but the actual redirect_to in the sent email is
-  // still a bare origin with no /auth/callback, confirmed on two fresh
-  // tokens -- so something invisible in the runtime value itself (stray
-  // whitespace/newline, wrong protocol) is the remaining suspect. This
-  // prints the exact value Supabase actually receives, wrapped in
-  // brackets so leading/trailing whitespace is visible in the log rather
-  // than silently trimmed by the terminal/log viewer. Remove once
-  // resolved.
-  console.log(`REDIRECT_DEBUG:[${emailRedirectTo}]`);
-
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo,
+      // Still set for the case where the email template keeps a
+      // clickable link alongside the code (or someone reuses an old
+      // email) -- verifyOtp() below is the primary path now, this is a
+      // fallback, not the thing the flow depends on.
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
     },
   });
 
   if (error) {
-    return { status: "error", message: "Something went wrong sending the link. Try again." };
+    return { status: "error", message: "Something went wrong sending the code. Try again." };
   }
 
-  return { status: "sent", message: `Check ${email} for a sign-in link.` };
+  return { status: "code_sent", message: `Enter the code sent to ${email}.`, email };
 }

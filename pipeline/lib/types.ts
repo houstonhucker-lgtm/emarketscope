@@ -13,7 +13,14 @@ export type Category =
 
 export type Pillar = "ux_feature" | "signature_event" | "calendar" | "investor_earnings";
 
-export type RunType = "weekly" | "monthly" | "quarterly" | "backfill" | "scope_proposal" | "investor_check";
+export type RunType =
+  | "weekly"
+  | "monthly"
+  | "quarterly"
+  | "backfill"
+  | "scope_proposal"
+  | "investor_check"
+  | "rollup_backfill";
 export type RunStatus = "running" | "success" | "failed";
 
 export interface PipelineRun {

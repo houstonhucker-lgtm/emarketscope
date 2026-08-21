@@ -10,6 +10,7 @@
   "scripts": {
     "weekly": "tsx pipeline/weekly/run.ts",
     "backfill": "tsx pipeline/backfill/historical.ts",
+    "backfill-rollups": "tsx pipeline/backfill/rollups.ts",
     "propose-scope-changes": "tsx pipeline/feedback/propose-scope-changes.ts",
     "monthly": "tsx pipeline/monthly/synthesize.ts",
     "quarterly": "tsx pipeline/quarterly/synthesize.ts",

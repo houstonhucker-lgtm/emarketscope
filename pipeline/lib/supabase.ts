@@ -405,3 +405,46 @@ export async function updateEarningsDate(
     .eq("id", id);
   if (error) throw new Error(`Failed to update earnings date: ${error.message}`);
 }
+
+// --- Retroactive rollups backfill (pipeline/backfill/rollups.ts) ---
+
+// Every week_of that has at least one backfilled item -- used to derive
+// which real months/quarters actually have data, rather than looping
+// over the whole 2-year window and hitting mostly-empty periods.
+export async function getAllBackfillWeekOfs(): Promise<string[]> {
+  const { data, error } = await supabase.from("digest_items").select("week_of").eq("is_backfill", true);
+  if (error) throw new Error(`Failed to load backfill week_of values: ${error.message}`);
+  return (data ?? []).map((row) => row.week_of as string);
+}
+
+// Deliberately the inverse of getDigestItemsInRange (is_backfill=true,
+// not false) -- the live monthly/quarterly jobs correctly exclude
+// backfill items (that's the whole point of the is_backfill flag: old
+// items never look like "this month's news"), but this script's entire
+// job is retroactively synthesizing over exactly that backfilled data.
+export async function getBackfillDigestItemsInRange(
+  periodStart: string,
+  periodEnd: string,
+): Promise<DigestItemRow[]> {
+  const { data, error } = await supabase
+    .from("digest_items")
+    .select("*")
+    .eq("is_backfill", true)
+    .gte("week_of", periodStart)
+    .lt("week_of", periodEnd)
+    .order("week_of", { ascending: true })
+    .returns<DigestItemRow[]>();
+  if (error) throw new Error(`Failed to load backfill digest items in range: ${error.message}`);
+  return data ?? [];
+}
+
+export async function rollupExists(rollupType: "monthly" | "quarterly", periodLabel: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("rollups")
+    .select("id")
+    .eq("rollup_type", rollupType)
+    .eq("period_label", periodLabel)
+    .limit(1);
+  if (error) throw new Error(`Failed to check existing rollup: ${error.message}`);
+  return (data ?? []).length > 0;
+}

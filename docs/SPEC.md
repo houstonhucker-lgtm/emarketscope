@@ -85,13 +85,31 @@ Public sources only:
 - **Monthly** — synthesized rollup, delivered by email
 - **Quarterly** — deeper rollup, delivered by email, incorporating
   shareholder letters and earnings call commentary from Walmart, Amazon,
-  and Target (predictable, scheduled, and reliably public)
+  and Target (predictable, scheduled, and reliably public). Needs to
+  reliably catch each retailer's actual latest earnings call / shareholder
+  materials rather than relying on a generic search that may miss timing —
+  worth giving it real awareness of each retailer's reporting calendar.
 - **Historical backfill** — one-time job at launch: roughly 2 years back for
   event dates and major UX press releases, to seed the calendar with
   history. Doesn't need to be as detailed as ongoing tracking. Also
   generates one real summary email of everything found (even if long),
   rather than silently seeding the database — that's the trigger for
   Houston to actually sit down and react to the whole batch at once.
+- **History, not just current period** — the Weekly/Monthly/Quarterly tabs
+  need to show a browsable archive that accumulates over time, not just
+  the most recent period. The underlying data (rollups table, weekly items
+  tied to a week_of date) already supports this — it's a UI gap, not a
+  data-model gap, same shape as the calendar list-vs-grid gap below.
+
+## Known limitations (found in real usage)
+
+- **Similar findings from multiple sources don't get merged.** If several
+  sources cover the same underlying event (e.g. a retailer's sale event),
+  each becomes its own separate entry rather than one entry with multiple
+  linked sources — visually noisy on the calendar when several land in the
+  same week. Real fix requires the pipeline to judge "these are probably
+  the same event," which needs real usage data to calibrate well; revisit
+  at the review checkpoint rather than guessing at merge rules now.
 
 ## Email structure
 
@@ -159,12 +177,16 @@ Tabs:
 - Quarterly
 - **Calendar** (separate, dedicated — expected to be referenced most
   frequently of anything in the app). Entries are color-coded by type
-  (signature event / UX & feature update / calendar-only) and by product
-  category (household essentials, health, beauty, personal care, baby
-  care), with a selector to filter to "all" or any combination of those.
-  Calendar entries are created for any item with a real event_date,
-  regardless of which pillar it came from — confirmed in the backfill:
-  all 56 items, spanning all three pillars, produced calendar entries.
+  (signature event / UX & feature update / investor & earnings /
+  calendar-only) and by product category (household essentials, health,
+  beauty, personal care, baby care), with a selector to filter to "all"
+  or any combination of those. Calendar entries are created for any item
+  with a real event_date, regardless of which pillar it came from —
+  confirmed in the backfill: all 56 items, spanning all three original
+  pillars, produced calendar entries. Investor & earnings findings need
+  to be saved as real dated, sourced items (same as everything else),
+  not just narrative text inside the quarterly email, so they can be
+  filtered and shown here and in the List view too.
 - Capture / feedback
 
 Every single item, everywhere in the app, is sourced with a clickable link

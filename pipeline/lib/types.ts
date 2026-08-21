@@ -11,7 +11,7 @@ export type Category =
   | "personal_care"
   | "baby_care";
 
-export type Pillar = "ux_feature" | "signature_event" | "calendar";
+export type Pillar = "ux_feature" | "signature_event" | "calendar" | "investor_earnings";
 
 export type RunType = "weekly" | "monthly" | "quarterly" | "backfill" | "scope_proposal";
 export type RunStatus = "running" | "success" | "failed";
@@ -175,16 +175,20 @@ export interface CalendarEntryInsert {
   is_backfill: boolean;
 }
 
-// Quarterly-only. Not a digest_item -- earnings/shareholder-letter
-// commentary doesn't carry a pillar or category, it's a distinct
-// fixed-shape section (Investor & Earnings Signal).
+// Quarterly-only. Also persisted as a real digest_items row (pillar
+// "investor_earnings") + calendar_entries row -- see quarterly/write.ts
+// -- so it's a filterable, dated, sourced item everywhere else in the
+// app, not just narrative prose in this fixed-shape email section.
+// categories/published_date are required (not optional) for exactly
+// that reason: every investor item needs both to become a real item.
 export interface InvestorSignalItem {
   title: string;
   summary: string;
   source_url: string;
   source_name?: string;
   retailer: Retailer;
-  published_date?: string;
+  categories: Category[];
+  published_date: string;
 }
 
 export interface RollupInsert {

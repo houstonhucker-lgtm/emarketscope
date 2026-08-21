@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { PILLAR_COLOR_VAR } from "@/lib/colors";
+import { PILLAR_COLOR_VAR, isHueCodedPillar } from "@/lib/colors";
 import { CATEGORY_LABELS, PILLAR_LABELS, type Category, type CalendarEntry, type Pillar } from "@/lib/types";
 import EntryCard from "./EntryCard";
 import MonthGrid from "./MonthGrid";
@@ -122,7 +122,12 @@ export default function CalendarView({ entries }: { entries: CalendarEntry[] }) 
           </div>
           <div className="flex flex-wrap gap-1.5">
             {ALL_PILLARS.map((p) => (
-              <FilterPill key={p} active={pillars.has(p)} onClick={() => togglePillar(p)} dotColor={PILLAR_COLOR_VAR[p]}>
+              <FilterPill
+                key={p}
+                active={pillars.has(p)}
+                onClick={() => togglePillar(p)}
+                dotColor={isHueCodedPillar(p) ? PILLAR_COLOR_VAR[p] : undefined}
+              >
                 {PILLAR_LABELS[p]}
               </FilterPill>
             ))}

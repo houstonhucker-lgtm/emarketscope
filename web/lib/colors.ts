@@ -15,11 +15,35 @@
 // fully filterable, just not claiming a false level of colorblind-safe
 // visual distinction. See references/palette.md in the dataviz skill for
 // the full validator output this decision is based on.
+//
+// The 4th pillar, "investor_earnings" (added later), hits the same
+// wall for the same reason: the skill's own color-formula.md states the
+// reference 8-hue palette validates all-pairs with only its first
+// three slots, and "no ordering of the full eight can pass" — not a
+// palette change, a hard cap. Pillar color-coding is genuinely an
+// all-pairs context (the Calendar grid's bars can put any two pillars
+// directly adjacent in the same week), so this cap applies here the
+// same way it did to Category. Rather than drop investor_earnings to a
+// plain neutral fill (which reads as empty/absent next to three bold
+// colors on a busy grid), it carries identity via a diagonal-hatch
+// pattern instead of a competing hue — see PILLAR_PATTERN_CLASS and
+// app/globals.css's .pillar-bar-pattern. Filter pills/badges use the
+// simpler outlined/no-fill treatment instead (same as Category), since
+// they're always paired with a visible text label and don't have the
+// grid's "disappears next to color" problem.
 
 import type { Pillar } from "./types";
 
-export const PILLAR_COLOR_VAR: Record<Pillar, string> = {
+export const PILLAR_COLOR_VAR: Record<Exclude<Pillar, "investor_earnings">, string> = {
   ux_feature: "var(--pillar-ux-feature)",
   signature_event: "var(--pillar-signature-event)",
   calendar: "var(--pillar-calendar)",
 };
+
+// CSS class for the diagonal-hatch pattern used wherever investor_earnings
+// would otherwise need a solid fill color (see app/globals.css).
+export const PILLAR_PATTERN_CLASS = "pillar-bar-pattern";
+
+export function isHueCodedPillar(pillar: Pillar): pillar is Exclude<Pillar, "investor_earnings"> {
+  return pillar !== "investor_earnings";
+}

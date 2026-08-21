@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { PILLAR_COLOR_VAR } from "@/lib/colors";
+import { PILLAR_COLOR_VAR, PILLAR_PATTERN_CLASS, isHueCodedPillar } from "@/lib/colors";
 import type { CalendarEntry } from "@/lib/types";
 import EntryCard from "./EntryCard";
 
@@ -279,25 +279,35 @@ export default function MonthGrid({ entries }: { entries: CalendarEntry[] }) {
                 );
               })}
 
-              {placements.map((p) => (
-                <button
-                  key={`${p.entry.id}-${weekIdx}`}
-                  type="button"
-                  onClick={() => setSelectedDay(week[p.startCol].key)}
-                  title={p.entry.title}
-                  aria-label={p.entry.title}
-                  style={{
-                    gridColumn: `${p.startCol + 1} / ${p.endCol + 2}`,
-                    gridRow: p.lane + 2,
-                    backgroundColor: PILLAR_COLOR_VAR[p.entry.pillar],
-                  }}
-                  // 8px tall, not more compact -- same ≥8px marker floor
-                  // reasoning as the grid's previous dot version, applied
-                  // to this mark shape too (see EntryCard/README's
-                  // Calendar color-coding note on the underlying palette).
-                  className="h-2 min-w-0 rounded-sm opacity-90 transition-opacity hover:opacity-100"
-                />
-              ))}
+              {placements.map((p) => {
+                const hueCoded = isHueCodedPillar(p.entry.pillar);
+                return (
+                  <button
+                    key={`${p.entry.id}-${weekIdx}`}
+                    type="button"
+                    onClick={() => setSelectedDay(week[p.startCol].key)}
+                    title={p.entry.title}
+                    aria-label={p.entry.title}
+                    style={{
+                      gridColumn: `${p.startCol + 1} / ${p.endCol + 2}`,
+                      gridRow: p.lane + 2,
+                      ...(isHueCodedPillar(p.entry.pillar) ? { backgroundColor: PILLAR_COLOR_VAR[p.entry.pillar] } : {}),
+                    }}
+                    // 8px tall, not more compact -- same ≥8px marker floor
+                    // reasoning as the grid's previous dot version, applied
+                    // to this mark shape too (see lib/colors.ts's Calendar
+                    // color-coding note on the underlying palette).
+                    // investor_earnings has no hue slot -- PILLAR_PATTERN_CLASS
+                    // gives it a diagonal-hatch fill instead of a flat
+                    // color, since a plain neutral bar would read as
+                    // empty/absent next to three bold-colored neighbors.
+                    className={
+                      "h-2 min-w-0 rounded-sm opacity-90 transition-opacity hover:opacity-100 " +
+                      (hueCoded ? "" : PILLAR_PATTERN_CLASS)
+                    }
+                  />
+                );
+              })}
             </div>
           );
         })}

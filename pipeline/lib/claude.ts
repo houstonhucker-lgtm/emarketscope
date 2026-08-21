@@ -210,9 +210,30 @@ const INVESTOR_SIGNAL_SCHEMA = {
           source_url: { type: "string" },
           source_name: { type: "string" },
           retailer: { type: "string", enum: ["walmart", "amazon", "target"] },
+          // Same category enum as ITEMS_SCHEMA -- every investor item
+          // becomes a real digest_items row now (pillar
+          // "investor_earnings"), and categories is what makes it
+          // filterable there, same as everything else.
+          categories: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: [
+                "household_essentials",
+                "health",
+                "beauty",
+                "personal_care",
+                "baby_care",
+              ],
+            },
+          },
+          // Required, not optional -- this becomes the item's real
+          // event_date/week_of once written. A finding with no
+          // determinable publish date isn't usable as "a real dated,
+          // sourced item," so it shouldn't be returned at all.
           published_date: { type: "string" },
         },
-        required: ["title", "summary", "source_url", "retailer"],
+        required: ["title", "summary", "source_url", "retailer", "categories", "published_date"],
         additionalProperties: false,
       },
     },

@@ -11,10 +11,12 @@
 import {
   createPipelineRun,
   finishPipelineRun,
+  getAllExistingSourceUrls,
   getCalendarEntriesInRange,
   getDigestItemsInRange,
   insertRollup,
 } from "../lib/supabase.js";
+import { writeInvestorItems } from "./write.js";
 import {
   emptyUsage,
   mergeUsage,
@@ -80,6 +82,23 @@ async function main() {
         `Total usage so far: $${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}).`,
     );
 
+    // Each investor finding also becomes a real digest_items +
+    // calendar_entries row (pillar "investor_earnings") -- not just
+    // prose in this email's dedicated section below -- so it's
+    // filterable/visible in the web app's List and Calendar views like
+    // everything else. Deduped against source_url so a re-run doesn't
+    // create duplicate rows; the email/rollup JSONB below still use the
+    // full (non-deduped) investorItems list regardless, since a
+    // source_url already stored from an earlier run doesn't mean this
+    // run's own email shouldn't mention it.
+    const existingSourceUrls = await getAllExistingSourceUrls();
+    const newInvestorItems = investorItems.filter((item) => !existingSourceUrls.has(item.source_url));
+    const investorItemsWritten = await writeInvestorItems(newInvestorItems, run.id);
+    console.log(
+      `Wrote ${investorItemsWritten} investor item(s) as real digest_items ` +
+        `(${investorItems.length - newInvestorItems.length} already stored from a prior run, skipped).`,
+    );
+
     const finalNarrative =
       narrative ??
       `No narrative could be generated for ${period.label} (Claude declined or returned an empty response). ` +
@@ -117,7 +136,7 @@ async function main() {
 
     const notes =
       `period=${period.label} items=${items.length} calendar_entries=${calendarEntries.length} ` +
-      `investor_items=${investorItems.length} | ` +
+      `investor_items=${investorItems.length} investor_items_written=${investorItemsWritten} | ` +
       `api_calls=${usage.api_calls} input_tokens=${usage.input_tokens} output_tokens=${usage.output_tokens} ` +
       `web_searches=${usage.web_search_requests} est_cost_usd=${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}) | ` +
       `email_sent=${emailResult.sent}`;

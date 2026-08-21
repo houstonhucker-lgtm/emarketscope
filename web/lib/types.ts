@@ -7,7 +7,7 @@ export type Retailer = "walmart" | "amazon" | "target";
 
 export type Category = "household_essentials" | "health" | "beauty" | "personal_care" | "baby_care";
 
-export type Pillar = "ux_feature" | "signature_event" | "calendar";
+export type Pillar = "ux_feature" | "signature_event" | "calendar" | "investor_earnings";
 
 export const CATEGORY_LABELS: Record<Category, string> = {
   household_essentials: "Household Essentials",
@@ -21,6 +21,7 @@ export const PILLAR_LABELS: Record<Pillar, string> = {
   ux_feature: "UX & Feature Update",
   signature_event: "Signature Event",
   calendar: "Calendar-only",
+  investor_earnings: "Investor & Earnings",
 };
 
 export interface DigestItem {
@@ -70,7 +71,8 @@ export interface InvestorSignalItem {
   source_url: string;
   source_name?: string;
   retailer: Retailer;
-  published_date?: string;
+  categories: Category[];
+  published_date: string;
 }
 
 export interface Rollup {

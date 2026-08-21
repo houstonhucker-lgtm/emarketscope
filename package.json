@@ -13,6 +13,7 @@
     "propose-scope-changes": "tsx pipeline/feedback/propose-scope-changes.ts",
     "monthly": "tsx pipeline/monthly/synthesize.ts",
     "quarterly": "tsx pipeline/quarterly/synthesize.ts",
+    "investor-check": "tsx pipeline/investor/daily-check.ts",
     "cost-report": "tsx pipeline/reports/cost-report.ts",
     "notify-failure": "tsx pipeline/notify/failure.ts"
   },

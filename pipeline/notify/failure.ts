@@ -17,7 +17,14 @@ import { supabase } from "../lib/supabase.js";
 import { sendEmail } from "../email/send.js";
 import type { RunType } from "../lib/types.js";
 
-const VALID_RUN_TYPES: RunType[] = ["weekly", "monthly", "quarterly", "backfill", "scope_proposal"];
+const VALID_RUN_TYPES: RunType[] = [
+  "weekly",
+  "monthly",
+  "quarterly",
+  "backfill",
+  "scope_proposal",
+  "investor_check",
+];
 
 async function main() {
   const runType = process.argv[2] as RunType | undefined;

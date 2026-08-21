@@ -1,9 +1,15 @@
 // Quarterly rollup: same shape as monthly (see monthly/synthesize.ts),
 // over the previous calendar quarter, plus the one section monthly never
-// gets — Investor & Earnings Signal, from a dedicated web-search call
-// (lib/claude.ts's searchInvestorSignal) since shareholder letters and
-// earnings call commentary aren't already sitting in digest_items the
-// way weekly-collected items are.
+// gets — Investor & Earnings Signal.
+//
+// Investor items are no longer collected here via a live search at
+// rollup time -- investor/daily-check.ts collects them continuously,
+// triggered by each retailer's actual known earnings date (see that
+// file's header for why). This job just queries what's already
+// accumulated in digest_items, same as it already does for every other
+// pillar -- consistent with how weekly-collected items work, and no
+// longer dependent on the quarterly cadence happening to land near a
+// real report.
 //
 // Invoked by .github/workflows/quarterly-run.yml on the 1st of
 // Jan/Apr/Jul/Oct, or manually via `npm run quarterly`.
@@ -11,25 +17,17 @@
 import {
   createPipelineRun,
   finishPipelineRun,
-  getAllExistingSourceUrls,
   getCalendarEntriesInRange,
   getDigestItemsInRange,
   insertRollup,
 } from "../lib/supabase.js";
-import { writeInvestorItems } from "./write.js";
-import {
-  emptyUsage,
-  mergeUsage,
-  searchInvestorSignal,
-  synthesizeNarrative,
-  type NarrativeInputItem,
-  type RunUsage,
-} from "../lib/claude.js";
+import { emptyUsage, mergeUsage, synthesizeNarrative, type NarrativeInputItem, type RunUsage } from "../lib/claude.js";
 import { getPreviousQuarterRange } from "../lib/dates.js";
 import { buildEmailSections, type EmailSectionItem } from "../email/sections.js";
 import { renderEmailHtml, renderEmailText } from "../email/render.js";
 import { sendEmail } from "../email/send.js";
 import { checkMonthlySpendGuardrail, guardrailNote } from "../lib/guardrails.js";
+import type { InvestorSignalItem } from "../lib/types.js";
 
 async function main() {
   const period = getPreviousQuarterRange();
@@ -56,6 +54,18 @@ async function main() {
     ]);
     console.log(`Loaded ${items.length} digest item(s), ${calendarEntries.length} calendar entr(y/ies).`);
 
+    const investorItemRows = items.filter((item) => item.pillar === "investor_earnings");
+    const investorItems: InvestorSignalItem[] = investorItemRows.map((item) => ({
+      title: item.title,
+      summary: item.summary,
+      source_url: item.source_url,
+      source_name: item.source_name ?? undefined,
+      retailer: item.retailers[0],
+      categories: item.categories,
+      published_date: item.source_published_at ?? item.week_of,
+    }));
+    console.log(`${investorItems.length} of those are investor/earnings items, already collected by daily-check.`);
+
     const narrativeInput: NarrativeInputItem[] = items.map((item) => ({
       title: item.title,
       summary: item.summary,
@@ -69,34 +79,6 @@ async function main() {
     mergeUsage(usage, narrativeUsage);
     console.log(
       `Narrative usage: ${usage.api_calls} API call(s), $${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}).`,
-    );
-
-    const { items: investorItems, usage: investorUsage } = await searchInvestorSignal(
-      period.label,
-      period.start,
-      period.end,
-    );
-    mergeUsage(usage, investorUsage);
-    console.log(
-      `Investor signal: ${investorItems.length} item(s), ${investorUsage.web_search_requests} web searches. ` +
-        `Total usage so far: $${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}).`,
-    );
-
-    // Each investor finding also becomes a real digest_items +
-    // calendar_entries row (pillar "investor_earnings") -- not just
-    // prose in this email's dedicated section below -- so it's
-    // filterable/visible in the web app's List and Calendar views like
-    // everything else. Deduped against source_url so a re-run doesn't
-    // create duplicate rows; the email/rollup JSONB below still use the
-    // full (non-deduped) investorItems list regardless, since a
-    // source_url already stored from an earlier run doesn't mean this
-    // run's own email shouldn't mention it.
-    const existingSourceUrls = await getAllExistingSourceUrls();
-    const newInvestorItems = investorItems.filter((item) => !existingSourceUrls.has(item.source_url));
-    const investorItemsWritten = await writeInvestorItems(newInvestorItems, run.id);
-    console.log(
-      `Wrote ${investorItemsWritten} investor item(s) as real digest_items ` +
-        `(${investorItems.length - newInvestorItems.length} already stored from a prior run, skipped).`,
     );
 
     const finalNarrative =
@@ -136,7 +118,7 @@ async function main() {
 
     const notes =
       `period=${period.label} items=${items.length} calendar_entries=${calendarEntries.length} ` +
-      `investor_items=${investorItems.length} investor_items_written=${investorItemsWritten} | ` +
+      `investor_items=${investorItems.length} (pre-collected by daily-check) | ` +
       `api_calls=${usage.api_calls} input_tokens=${usage.input_tokens} output_tokens=${usage.output_tokens} ` +
       `web_searches=${usage.web_search_requests} est_cost_usd=${usage.estimated_cost_usd.toFixed(4)} (${usage.pricing_basis}) | ` +
       `email_sent=${emailResult.sent}`;

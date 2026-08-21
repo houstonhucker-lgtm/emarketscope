@@ -13,7 +13,7 @@ export type Category =
 
 export type Pillar = "ux_feature" | "signature_event" | "calendar" | "investor_earnings";
 
-export type RunType = "weekly" | "monthly" | "quarterly" | "backfill" | "scope_proposal";
+export type RunType = "weekly" | "monthly" | "quarterly" | "backfill" | "scope_proposal" | "investor_check";
 export type RunStatus = "running" | "success" | "failed";
 
 export interface PipelineRun {
@@ -201,4 +201,27 @@ export interface RollupInsert {
   investor_signal: InvestorSignalItem[] | null;
   email_sent: boolean;
   email_error: string | null;
+}
+
+// Tracks each retailer's known/expected earnings report date, so the
+// investor-signal check can be triggered by the actual date instead of
+// the quarterly rollup's own fixed cadence happening to land near one.
+// See supabase/migrations/20260821183000_earnings_dates.sql.
+export interface EarningsDateRow {
+  id: string;
+  retailer: Retailer;
+  fiscal_period_label: string;
+  expected_report_date: string;
+  confirmed: boolean;
+  checked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EarningsDateInsert {
+  retailer: Retailer;
+  fiscal_period_label: string;
+  expected_report_date: string;
+  confirmed: boolean;
+  checked_at?: string | null;
 }

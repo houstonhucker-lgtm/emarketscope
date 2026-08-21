@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import "dotenv/config";
-import type { CandidateItem, InvestorSignalItem, KnownSource, ScopeProfile } from "./types.js";
+import type { CandidateItem, InvestorSignalItem, KnownSource, Retailer, ScopeProfile } from "./types.js";
 
 // Sonnet 5 list pricing (per MTok). Intro rate applies through 2026-08-31,
 // per the Anthropic pricing page; standard rate applies after. Used only to
@@ -92,6 +92,14 @@ const SOURCE_AUDIT_PROMPT = readFileSync(join(__dirname, "..", "prompts", "sourc
 const SCOPE_PROPOSAL_PROMPT = readFileSync(join(__dirname, "..", "prompts", "scope-proposal.md"), "utf-8");
 const ROLLUP_NARRATIVE_PROMPT = readFileSync(join(__dirname, "..", "prompts", "rollup-narrative.md"), "utf-8");
 const INVESTOR_SIGNAL_PROMPT = readFileSync(join(__dirname, "..", "prompts", "investor-signal.md"), "utf-8");
+const RETAILER_INVESTOR_SIGNAL_PROMPT = readFileSync(
+  join(__dirname, "..", "prompts", "retailer-investor-signal.md"),
+  "utf-8",
+);
+const EARNINGS_DATE_LOOKUP_PROMPT = readFileSync(
+  join(__dirname, "..", "prompts", "earnings-date-lookup.md"),
+  "utf-8",
+);
 
 // maxRetries raised from the SDK default (2) to 5: a real 8-chunk backfill
 // run hit a transient 529 overloaded_error on chunk 2/8 with the default,
@@ -128,6 +136,13 @@ const AUDIT_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_AUDIT_MAX_WEB_SEARCHES 
 // Three retailers x (earnings call + shareholder letter) = 6 natural
 // targets; headroom for follow-up searches per retailer.
 const INVESTOR_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_INVESTOR_MAX_WEB_SEARCHES ?? 30);
+// One retailer, one known report -- a fraction of the full quarterly
+// search's budget since it's scoped and date-targeted, not discovering
+// across three retailers at once.
+const RETAILER_INVESTOR_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_RETAILER_INVESTOR_MAX_WEB_SEARCHES ?? 10);
+// A schedule lookup, not content discovery -- should resolve in a
+// handful of searches or not at all.
+const EARNINGS_DATE_MAX_WEB_SEARCHES = Number(process.env.CLAUDE_EARNINGS_DATE_MAX_WEB_SEARCHES ?? 5);
 const MAX_TOKENS = 16000;
 const MAX_RESUMES = 3; // guards against runaway pause_turn loops
 
@@ -239,6 +254,18 @@ const INVESTOR_SIGNAL_SCHEMA = {
     },
   },
   required: ["items"],
+  additionalProperties: false,
+} as const;
+
+const EARNINGS_DATE_SCHEMA = {
+  type: "object",
+  properties: {
+    found: { type: "boolean" },
+    expected_report_date: { type: "string" },
+    fiscal_period_label: { type: "string" },
+    source_url: { type: "string" },
+  },
+  required: ["found"],
   additionalProperties: false,
 } as const;
 
@@ -773,4 +800,79 @@ export async function searchInvestorSignal(
   if (!text) return { items: [], usage };
   const parsed = extractLastJsonObject(text, "investor signal", isInvestorItemsShape);
   return { items: parsed.items ?? [], usage };
+}
+
+// Date-driven, single-retailer content search -- run by
+// investor/daily-check.ts right after a retailer's known earnings date,
+// instead of quarterly's old broad three-retailer search happening on a
+// fixed calendar cadence that may or may not land near a real report.
+export async function searchInvestorSignalForRetailer(
+  retailer: Retailer,
+  fiscalPeriodLabel: string,
+  expectedReportDate: string,
+): Promise<InvestorSignalAndUsage> {
+  const dynamicContext = [
+    `## Retailer: ${retailer}`,
+    `fiscal_period: ${fiscalPeriodLabel}`,
+    `expected_report_date: ${expectedReportDate}`,
+    `today: ${new Date().toISOString().slice(0, 10)}`,
+  ].join("\n");
+
+  const { text, usage } = await executeSearchRequest(
+    [
+      { text: RETAILER_INVESTOR_SIGNAL_PROMPT, cacheControl: true },
+      { text: dynamicContext },
+    ],
+    INVESTOR_SIGNAL_SCHEMA,
+    RETAILER_INVESTOR_MAX_WEB_SEARCHES,
+    `Search for ${retailer}'s ${fiscalPeriodLabel} investor/earnings signal now.`,
+    "retailer investor signal",
+  );
+  if (!text) return { items: [], usage };
+  const parsed = extractLastJsonObject(text, "retailer investor signal", isInvestorItemsShape);
+  return { items: parsed.items ?? [], usage };
+}
+
+export interface EarningsDateLookupResult {
+  found: boolean;
+  expected_report_date?: string;
+  fiscal_period_label?: string;
+  source_url?: string;
+}
+
+export interface EarningsDateLookupAndUsage {
+  result: EarningsDateLookupResult;
+  usage: RunUsage;
+}
+
+function isEarningsDateLookupShape(v: unknown): v is EarningsDateLookupResult {
+  return !!v && typeof v === "object" && typeof (v as { found?: unknown }).found === "boolean";
+}
+
+// Narrow schedule lookup, not content discovery -- "when is X's next
+// earnings date," which is a well-defined, low-ambiguity search
+// (companies announce these directly) unlike open-ended content search.
+export async function findNextEarningsDate(
+  retailer: Retailer,
+  afterDate: string,
+): Promise<EarningsDateLookupAndUsage> {
+  const dynamicContext = [
+    `## Retailer: ${retailer}`,
+    `looking for the next report announced after: ${afterDate}`,
+    `today: ${new Date().toISOString().slice(0, 10)}`,
+  ].join("\n");
+
+  const { text, usage } = await executeSearchRequest(
+    [
+      { text: EARNINGS_DATE_LOOKUP_PROMPT, cacheControl: true },
+      { text: dynamicContext },
+    ],
+    EARNINGS_DATE_SCHEMA,
+    EARNINGS_DATE_MAX_WEB_SEARCHES,
+    `Look up ${retailer}'s next scheduled earnings report date now.`,
+    "earnings date lookup",
+  );
+  if (!text) return { result: { found: false }, usage };
+  const parsed = extractLastJsonObject(text, "earnings date lookup", isEarningsDateLookupShape);
+  return { result: parsed, usage };
 }

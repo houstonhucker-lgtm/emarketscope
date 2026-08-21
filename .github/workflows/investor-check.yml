@@ -1,0 +1,42 @@
+name: Investor & earnings check
+
+on:
+  schedule:
+    # Daily, 13:00 UTC. Cheap on most days -- just a DB read to decide
+    # there's nothing to do yet; only spends real money on the rare day
+    # it's actually within a day or two of a retailer's known earnings
+    # date, or due for a throttled next-date discovery attempt.
+    - cron: "0 13 * * *"
+  workflow_dispatch: {} # manual trigger, for testing without waiting for a real date
+
+jobs:
+  investor-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Run investor-check
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MONTHLY_SPEND_LIMIT_USD: ${{ secrets.MONTHLY_SPEND_LIMIT_USD }}
+        run: npm run investor-check
+
+      - name: Notify on failure
+        if: failure()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          DIGEST_EMAIL_TO: ${{ secrets.DIGEST_EMAIL_TO }}
+          DIGEST_EMAIL_FROM: ${{ secrets.DIGEST_EMAIL_FROM }}
+        run: npm run notify-failure -- investor_check

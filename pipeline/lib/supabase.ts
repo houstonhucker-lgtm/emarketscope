@@ -9,9 +9,12 @@ import type {
   CalendarEntryRow,
   DigestItemInsert,
   DigestItemRow,
+  EarningsDateInsert,
+  EarningsDateRow,
   ForwardedItem,
   KnownSource,
   PipelineRun,
+  Retailer,
   RollupInsert,
   RunStatus,
   RunType,
@@ -359,4 +362,46 @@ export async function getMonthToDateSpendUsd(): Promise<number> {
     .gte("started_at", monthStart);
   if (error) throw new Error(`Failed to load month-to-date spend: ${error.message}`);
   return (data ?? []).reduce((sum, row) => sum + ((row.estimated_cost_usd as number | null) ?? 0), 0);
+}
+
+// --- Earnings dates (date-driven investor-signal checks) ---
+
+export async function getLatestEarningsDate(retailer: Retailer): Promise<EarningsDateRow | null> {
+  const { data, error } = await supabase
+    .from("earnings_dates")
+    .select("*")
+    .eq("retailer", retailer)
+    .order("expected_report_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to load latest earnings date for ${retailer}: ${error.message}`);
+  return data as EarningsDateRow | null;
+}
+
+export async function insertEarningsDate(row: EarningsDateInsert): Promise<EarningsDateRow> {
+  const { data, error } = await supabase.from("earnings_dates").insert(row).select().single();
+  if (error) throw new Error(`Failed to insert earnings date: ${error.message}`);
+  return data as EarningsDateRow;
+}
+
+export async function markEarningsDateChecked(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("earnings_dates")
+    .update({ checked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(`Failed to mark earnings date checked: ${error.message}`);
+}
+
+// Refines a still-estimated row in place once a real announced date is
+// found (or just touches updated_at to record a discovery attempt that
+// found nothing yet, throttling how often the next attempt fires).
+export async function updateEarningsDate(
+  id: string,
+  fields: { expected_report_date?: string; fiscal_period_label?: string; confirmed?: boolean },
+): Promise<void> {
+  const { error } = await supabase
+    .from("earnings_dates")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(`Failed to update earnings date: ${error.message}`);
 }
